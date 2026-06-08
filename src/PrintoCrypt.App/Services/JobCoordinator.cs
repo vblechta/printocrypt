@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Windows;
 using PrintoCrypt.Core.Models;
 using PrintoCrypt.Core.Services;
 
@@ -9,10 +10,9 @@ public sealed class JobCoordinator
     private readonly PrintJobProcessor _processor;
     private readonly AppSettings _settings;
 
-    public event EventHandler<string>? JobCompleted;
+    public event EventHandler<JobCompletionInfo>? JobCompleted;
     public event EventHandler<string>? JobCancelled;
     public event EventHandler<(PrintJobInfo Job, Exception Error)>? JobFailed;
-    public event EventHandler<string>? OutlookOpenFailed;
 
     public JobCoordinator(PrintJobProcessor processor, AppSettings settings)
     {
@@ -20,34 +20,60 @@ public sealed class JobCoordinator
         _settings = settings;
     }
 
-    public async Task HandleJobAsync(PrintJobInfo job, Func<PrintJobInfo, Task<string?>> requestPasswordAsync)
+    public async Task HandleJobAsync(
+        PrintJobInfo job,
+        Func<PrintJobInfo, Task<PasswordSubmission?>> requestPasswordAsync)
     {
         try
         {
-            var password = await requestPasswordAsync(job);
-            if (password is null)
+            var submission = await requestPasswordAsync(job);
+            if (submission is null)
             {
                 JobCancelled?.Invoke(this, job.DocumentTitle ?? job.JobId);
                 TryDelete(job.SourcePath);
                 return;
             }
 
-            var outputPath = await Task.Run(() =>
-                _processor.Process(job, password, _settings.OutputDirectory));
-
-            JobCompleted?.Invoke(this, outputPath);
+            var displayName = SanitizeDisplayName(job.DocumentTitle ?? job.JobId);
 
             if (_settings.OpenOutlookAfterSave)
             {
-                try
+                var subject = ResolveEmailSubject(submission, job, displayName);
+                var body = ResolveEmailBody(submission, job, displayName);
+
+                await Application.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    OutlookEmailService.CreateDraftWithAttachment(outputPath, job.DocumentTitle);
-                }
-                catch (Exception ex)
-                {
-                    OutlookOpenFailed?.Invoke(this, ex.Message);
-                }
+                    var tempPath = _processor.Process(job, submission.Password, outputDirectory: null);
+
+                    try
+                    {
+                        OutlookEmailService.CreateDraftWithAttachment(tempPath, subject, body);
+                        TryDelete(tempPath);
+
+                        JobCompleted?.Invoke(this, new JobCompletionInfo
+                        {
+                            DisplayName = displayName,
+                            OutlookDraftOpened = true
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        TryDelete(tempPath);
+                        JobFailed?.Invoke(this, (job, ex));
+                    }
+                });
+
+                return;
             }
+
+            var outputPath = await Application.Current.Dispatcher.InvokeAsync(() =>
+                _processor.Process(job, submission.Password, _settings.OutputDirectory));
+
+            JobCompleted?.Invoke(this, new JobCompletionInfo
+            {
+                DisplayName = displayName,
+                SavedPath = outputPath
+            });
 
             if (_settings.OpenOutputFolderAfterSave)
             {
@@ -59,6 +85,38 @@ public sealed class JobCoordinator
             JobFailed?.Invoke(this, (job, ex));
             TryDelete(job.SourcePath);
         }
+    }
+
+    private static string? ResolveEmailSubject(
+        PasswordSubmission submission,
+        PrintJobInfo job,
+        string displayName)
+    {
+        if (submission.EmailTemplate is null)
+        {
+            return job.DocumentTitle;
+        }
+
+        return EmailTemplateFormatter.Apply(submission.EmailTemplate.Subject, job, displayName);
+    }
+
+    private static string? ResolveEmailBody(
+        PasswordSubmission submission,
+        PrintJobInfo job,
+        string displayName)
+    {
+        if (submission.EmailTemplate is null)
+        {
+            return null;
+        }
+
+        return EmailTemplateFormatter.Apply(submission.EmailTemplate.Body, job, displayName);
+    }
+
+    private static string SanitizeDisplayName(string name)
+    {
+        var cleaned = name.Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? "Document" : cleaned;
     }
 
     private static void OpenContainingFolder(string filePath)

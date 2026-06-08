@@ -1,21 +1,25 @@
 using System.Runtime.InteropServices;
+using PrintoCrypt.Core.Localization;
 
 namespace PrintoCrypt.App.Services;
 
 public static class OutlookEmailService
 {
     private const int OlMailItem = 0;
+    private const int OlByValue = 1;
 
-    public static void CreateDraftWithAttachment(string filePath, string? subject = null)
+    public static void CreateDraftWithAttachment(
+        string filePath,
+        string? subject = null,
+        string? body = null)
     {
         if (!File.Exists(filePath))
         {
-            throw new FileNotFoundException("Encrypted PDF was not found.", filePath);
+            throw new FileNotFoundException(M.Get("Error_EncryptedPdfNotFound"), filePath);
         }
 
         var outlookType = Type.GetTypeFromProgID("Outlook.Application")
-            ?? throw new InvalidOperationException(
-                "Microsoft Outlook is not installed or not registered on this computer.");
+            ?? throw new InvalidOperationException(M.Get("Error_OutlookNotInstalled"));
 
         dynamic? outlook = null;
         dynamic? mail = null;
@@ -27,7 +31,13 @@ public static class OutlookEmailService
             mail.Subject = string.IsNullOrWhiteSpace(subject)
                 ? Path.GetFileNameWithoutExtension(filePath)
                 : subject;
-            mail.Attachments.Add(filePath);
+
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                mail.Body = body;
+            }
+
+            mail.Attachments.Add(filePath, OlByValue, 1, Path.GetFileName(filePath));
             mail.Display(false);
         }
         finally

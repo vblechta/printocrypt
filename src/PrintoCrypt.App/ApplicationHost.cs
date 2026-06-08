@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Windows;
 using Microsoft.Win32;
+using PrintoCrypt.App.Localization;
 using PrintoCrypt.App.Services;
 using PrintoCrypt.App.Views;
 using PrintoCrypt.Core.Models;
@@ -25,28 +26,9 @@ public sealed class ApplicationHost
 
     public void Start()
     {
-        var converter = new PostScriptConverter(_settings.GhostscriptPath);
-        if (!converter.IsGhostscriptAvailable())
-        {
-            MessageBox.Show(
-                "Ghostscript was not found. Install it from https://ghostscript.com/releases/gsdnld.html " +
-                "or set the path in PrintoCrypt Settings.\n\nPrint jobs will fail until Ghostscript is available.",
-                "PrintoCrypt",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-        }
-
         _trayIcon = new TrayIconService(this);
         _jobCoordinator = CreateJobCoordinator(_settings);
-
-        var spoolDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "PrintoCrypt",
-            "spool");
-
-        _printServer = new PrintServer(_settings.ListenPort, spoolDir);
-        _printServer.JobReceived += OnJobReceived;
-        _printServer.Start();
+        StartPrintServer();
 
         if (_settings.StartWithWindows)
         {
@@ -100,15 +82,18 @@ public sealed class ApplicationHost
         _settings = settings;
         _printServer?.Stop();
         _printServer?.Dispose();
-
         _jobCoordinator = CreateJobCoordinator(settings);
+        StartPrintServer();
+    }
 
+    private void StartPrintServer()
+    {
         var spoolDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "PrintoCrypt",
             "spool");
 
-        _printServer = new PrintServer(settings.ListenPort, spoolDir);
+        _printServer = new PrintServer(_settings.ListenPort, spoolDir);
         _printServer.JobReceived += OnJobReceived;
         _printServer.Start();
     }
@@ -116,20 +101,34 @@ public sealed class ApplicationHost
     private JobCoordinator CreateJobCoordinator(AppSettings settings)
     {
         var coordinator = new JobCoordinator(
-            new PrintJobProcessor(new PostScriptConverter(settings.GhostscriptPath), new PdfEncryptionService()),
+            new PrintJobProcessor(new WpfXpsToPdfConverter(), new PdfEncryptionService()),
             settings);
 
-        coordinator.JobCompleted += (_, path) =>
-            _trayIcon?.ShowBalloon("Print saved", Path.GetFileName(path), Hardcodet.Wpf.TaskbarNotification.BalloonIcon.Info);
+        coordinator.JobCompleted += (_, info) =>
+        {
+            if (info.OutlookDraftOpened)
+            {
+                _trayIcon?.ShowBalloon(
+                    L.Get("Notification_OutlookTitle"),
+                    L.Format("Notification_OutlookDraftOpened", info.DisplayName),
+                    Hardcodet.Wpf.TaskbarNotification.BalloonIcon.Info);
+                return;
+            }
+
+            if (info.SavedPath is not null)
+            {
+                _trayIcon?.ShowBalloon(
+                    L.Get("Notification_PrintSaved"),
+                    Path.GetFileName(info.SavedPath),
+                    Hardcodet.Wpf.TaskbarNotification.BalloonIcon.Info);
+            }
+        };
 
         coordinator.JobCancelled += (_, title) =>
-            _trayIcon?.ShowBalloon("Print cancelled", title, Hardcodet.Wpf.TaskbarNotification.BalloonIcon.Warning);
+            _trayIcon?.ShowBalloon(L.Get("Notification_PrintCancelled"), title, Hardcodet.Wpf.TaskbarNotification.BalloonIcon.Warning);
 
         coordinator.JobFailed += (_, tuple) =>
-            _trayIcon?.ShowBalloon("Print failed", tuple.Error.Message, Hardcodet.Wpf.TaskbarNotification.BalloonIcon.Error);
-
-        coordinator.OutlookOpenFailed += (_, message) =>
-            _trayIcon?.ShowBalloon("Outlook", message, Hardcodet.Wpf.TaskbarNotification.BalloonIcon.Warning);
+            _trayIcon?.ShowBalloon(L.Get("Notification_PrintFailed"), tuple.Error.Message, Hardcodet.Wpf.TaskbarNotification.BalloonIcon.Error);
 
         return coordinator;
     }
@@ -147,19 +146,30 @@ public sealed class ApplicationHost
         });
     }
 
-    private Task<string?> RequestPasswordAsync(PrintJobInfo job)
+    private Task<PasswordSubmission?> RequestPasswordAsync(PrintJobInfo job)
     {
-        var tcs = new TaskCompletionSource<string?>();
+        var tcs = new TaskCompletionSource<PasswordSubmission?>();
 
         Application.Current.Dispatcher.Invoke(() =>
         {
-            var dialog = new PasswordDialog(job)
+            var dialog = new PasswordDialog(job, _settings)
             {
                 Owner = _settingsWindow?.IsVisible == true ? _settingsWindow : null
             };
 
             var result = dialog.ShowDialog();
-            tcs.SetResult(result == true ? dialog.Password : null);
+            if (result == true)
+            {
+                tcs.SetResult(new PasswordSubmission
+                {
+                    Password = dialog.Password,
+                    EmailTemplate = dialog.SelectedEmailTemplate
+                });
+            }
+            else
+            {
+                tcs.SetResult(null);
+            }
         });
 
         return tcs.Task;

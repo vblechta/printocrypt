@@ -27,8 +27,13 @@ jobs:
       - name: Publish
         run: dotnet publish src/PrintoCrypt.App/PrintoCrypt.App.csproj -c Release -r win-x64 --self-contained false -o artifacts/PrintoCrypt
 
+      - name: Build installer package
+        run: powershell -ExecutionPolicy Bypass -File scripts/Build-Installer.ps1 -OutputDir artifacts/PrintoCrypt-Setup
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: PrintoCrypt-win-x64
-          path: artifacts/PrintoCrypt
+          path: |
+            artifacts/PrintoCrypt-Setup
+            artifacts/PrintoCrypt-Setup.zip

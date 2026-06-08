@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="AppTitle" xml:space="preserve">
+    <value>PrintoCrypt</value>
+  </data>
+  <data name="MainWindow_Title" xml:space="preserve">
+    <value>PrintoCrypt Settings</value>
+  </data>
+  <data name="MainWindow_Subtitle" xml:space="preserve">
+    <value>Virtual printer that saves password-protected PDF files.</value>
+  </data>
+  <data name="OutputFolder" xml:space="preserve">
+    <value>Output folder</value>
+  </data>
+  <data name="Browse" xml:space="preserve">
+    <value>Browse</value>
+  </data>
+  <data name="ListenPort" xml:space="preserve">
+    <value>Listen port</value>
+  </data>
+  <data name="OpenOutlook" xml:space="preserve">
+    <value>Open Outlook with encrypted PDF attached</value>
+  </data>
+  <data name="OpenFolderAfterSave" xml:space="preserve">
+    <value>Open output folder after saving</value>
+  </data>
+  <data name="StartupWithWindows" xml:space="preserve">
+    <value>Start PrintoCrypt with Windows</value>
+  </data>
+  <data name="PrinterSetup" xml:space="preserve">
+    <value>Printer setup</value>
+  </data>
+  <data name="PrinterSetupDescription" xml:space="preserve">
+    <value>Installs the PrintoCrypt virtual printer (Administrator required). Uses Microsoft Print To PDF on TCP port 9150. Keep PrintoCrypt running in the tray when you print.</value>
+  </data>
+  <data name="InstallPrinter" xml:space="preserve">
+    <value>Install printer (PowerShell)</value>
+  </data>
+  <data name="UninstallPrinter" xml:space="preserve">
+    <value>Uninstall printer</value>
+  </data>
+  <data name="Close" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="Save" xml:space="preserve">
+    <value>Save</value>
+  </data>
+  <data name="SettingsSaved" xml:space="preserve">
+    <value>Settings saved.</value>
+  </data>
+  <data name="InvalidListenPort" xml:space="preserve">
+    <value>Listen port must be between 1024 and 65535.</value>
+  </data>
+  <data name="ScriptNotFound" xml:space="preserve">
+    <value>Could not find {0}. Run it manually from the scripts folder next to PrintoCrypt.exe.</value>
+  </data>
+  <data name="SaveValidPortBeforeInstall" xml:space="preserve">
+    <value>Save a valid listen port (1024-65535) before installing the printer.</value>
+  </data>
+  <data name="PrinterInstallCancelled" xml:space="preserve">
+    <value>Printer installation was cancelled or could not be started.</value>
+  </data>
+  <data name="ActionCompleted" xml:space="preserve">
+    <value>{0} completed.</value>
+  </data>
+  <data name="ActionFailed" xml:space="preserve">
+    <value>{0} failed (exit code {1}). Run this in an elevated PowerShell window for details:
+
+powershell -ExecutionPolicy Bypass -File "{2}" -Port {3}</value>
+  </data>
+  <data name="AdminApprovalCancelled" xml:space="preserve">
+    <value>Administrator approval was required and the request was cancelled.</value>
+  </data>
+  <data name="InstallPrinterAction" xml:space="preserve">
+    <value>Install printer</value>
+  </data>
+  <data name="UninstallPrinterAction" xml:space="preserve">
+    <value>Uninstall printer</value>
+  </data>
+  <data name="PasswordDialog_Title" xml:space="preserve">
+    <value>PrintoCrypt – Set PDF password</value>
+  </data>
+  <data name="EncryptPrintJob" xml:space="preserve">
+    <value>Encrypt print job</value>
+  </data>
+  <data name="Password" xml:space="preserve">
+    <value>Password</value>
+  </data>
+  <data name="ConfirmPassword" xml:space="preserve">
+    <value>Confirm password</value>
+  </data>
+  <data name="Cancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="Confirm" xml:space="preserve">
+    <value>Confirm</value>
+  </data>
+  <data name="Submit" xml:space="preserve">
+    <value>Submit</value>
+  </data>
+  <data name="UntitledDocument" xml:space="preserve">
+    <value>Untitled document</value>
+  </data>
+  <data name="EnterPassword" xml:space="preserve">
+    <value>Enter a password.</value>
+  </data>
+  <data name="PasswordMinLength" xml:space="preserve">
+    <value>Password must be at least 4 characters.</value>
+  </data>
+  <data name="PasswordsDoNotMatch" xml:space="preserve">
+    <value>Passwords do not match.</value>
+  </data>
+  <data name="TrayTooltip" xml:space="preserve">
+    <value>PrintoCrypt – encrypted PDF printer</value>
+  </data>
+  <data name="TraySettings" xml:space="preserve">
+    <value>Settings</value>
+  </data>
+  <data name="TrayOpenOutputFolder" xml:space="preserve">
+    <value>Open output folder</value>
+  </data>
+  <data name="TrayExit" xml:space="preserve">
+    <value>Exit</value>
+  </data>
+  <data name="Notification_OutlookTitle" xml:space="preserve">
+    <value>Outlook</value>
+  </data>
+  <data name="Notification_OutlookDraftOpened" xml:space="preserve">
+    <value>Draft opened with {0}</value>
+  </data>
+  <data name="Notification_PrintSaved" xml:space="preserve">
+    <value>Print saved</value>
+  </data>
+  <data name="Notification_PrintCancelled" xml:space="preserve">
+    <value>Print cancelled</value>
+  </data>
+  <data name="Notification_PrintFailed" xml:space="preserve">
+    <value>Print failed</value>
+  </data>
+  <data name="AdminOnlyPort" xml:space="preserve">
+    <value>Only administrators can change the listen port.</value>
+  </data>
+  <data name="AdminOnlyPrinter" xml:space="preserve">
+    <value>Printer installation and removal require administrator privileges.</value>
+  </data>
+  <data name="UserSettingsTab" xml:space="preserve">
+    <value>User settings</value>
+  </data>
+  <data name="GlobalSettingsTab" xml:space="preserve">
+    <value>Global settings</value>
+  </data>
+  <data name="GlobalSettingsDescription" xml:space="preserve">
+    <value>These settings apply to all users on this computer and require administrator approval.</value>
+  </data>
+  <data name="GlobalSettingsLockedTitle" xml:space="preserve">
+    <value>Administrator approval required</value>
+  </data>
+  <data name="GlobalSettingsLockedText" xml:space="preserve">
+    <value>Global settings can only be viewed and changed after you approve the administrator prompt.</value>
+  </data>
+  <data name="UnlockGlobalSettings" xml:space="preserve">
+    <value>Continue as administrator</value>
+  </data>
+  <data name="UseEmailTemplates" xml:space="preserve">
+    <value>Use email templates in password dialog</value>
+  </data>
+  <data name="EmailTemplates" xml:space="preserve">
+    <value>Email templates</value>
+  </data>
+  <data name="EmailTemplatesHelp" xml:space="preserve">
+    <value>Placeholders: {DocumentTitle}, {FileName}, {Date}, {Time}</value>
+  </data>
+  <data name="AddTemplate" xml:space="preserve">
+    <value>Add template</value>
+  </data>
+  <data name="RemoveTemplate" xml:space="preserve">
+    <value>Remove</value>
+  </data>
+  <data name="NewTemplateName" xml:space="preserve">
+    <value>Template {0}</value>
+  </data>
+  <data name="EmailTemplateName" xml:space="preserve">
+    <value>Template name</value>
+  </data>
+  <data name="EmailTemplateSubject" xml:space="preserve">
+    <value>Subject</value>
+  </data>
+  <data name="EmailTemplateBody" xml:space="preserve">
+    <value>Message</value>
+  </data>
+  <data name="EmailTemplateSelect" xml:space="preserve">
+    <value>Email template</value>
+  </data>
+  <data name="EmailTemplateNothing" xml:space="preserve">
+    <value>Nothing</value>
+  </data>
+  <data name="EmailTemplateDefault" xml:space="preserve">
+    <value>Default template</value>
+  </data>
+  <data name="SelectEmailTemplate" xml:space="preserve">
+    <value>Select an email template.</value>
+  </data>
+</root>

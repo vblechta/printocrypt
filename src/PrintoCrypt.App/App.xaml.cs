@@ -8,6 +8,7 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        Localization.LocalizationSetup.ApplySystemLanguage();
         base.OnStartup(e);
         _host = new ApplicationHost();
         _host.Start();

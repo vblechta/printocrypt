@@ -11,8 +11,9 @@ public sealed class AppSettings
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
             "PrintoCrypt");
-    public string? GhostscriptPath { get; set; }
     public bool OpenOutputFolderAfterSave { get; set; } = false;
     public bool OpenOutlookAfterSave { get; set; } = true;
     public bool StartWithWindows { get; set; } = true;
+    public bool UseEmailTemplates { get; set; } = false;
+    public List<EmailTemplate> EmailTemplates { get; set; } = [];
 }

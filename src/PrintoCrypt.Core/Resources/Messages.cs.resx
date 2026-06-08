@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="Error_PostScriptInsteadOfPdf" xml:space="preserve">
+    <value>Tiskárna odeslala PostScript místo PDF. Přeinstalujte tiskárnu PrintoCrypt v Nastavení.</value>
+  </data>
+  <data name="Error_PostScriptFromPrinter" xml:space="preserve">
+    <value>Tiskárna odeslala PostScript místo XPS. Přeinstalujte tiskárnu PrintoCrypt v Nastavení.</value>
+  </data>
+  <data name="Error_InvalidXpsDocument" xml:space="preserve">
+    <value>Tisková úloha neobsahuje platný XPS dokument. Přeinstalujte tiskárnu PrintoCrypt v Nastavení.</value>
+  </data>
+  <data name="Error_UnreadablePage" xml:space="preserve">
+    <value>Tisková úloha obsahuje nečitelnou stránku.</value>
+  </data>
+  <data name="Error_PrintJobNotFound" xml:space="preserve">
+    <value>Soubor tiskové úlohy nebyl nalezen.</value>
+  </data>
+  <data name="Error_NotReadyToConvert" xml:space="preserve">
+    <value>PrintoCrypt není připraven ke zpracování tiskových úloh.</value>
+  </data>
+  <data name="Error_EncryptedPdfNotFound" xml:space="preserve">
+    <value>Šifrované PDF nebylo nalezeno.</value>
+  </data>
+  <data name="Error_OutlookNotInstalled" xml:space="preserve">
+    <value>Microsoft Outlook není nainstalován nebo není zaregistrován v tomto počítači.</value>
+  </data>
+</root>

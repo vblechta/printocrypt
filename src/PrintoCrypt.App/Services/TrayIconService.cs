@@ -1,5 +1,6 @@
 using System.Windows;
 using Hardcodet.Wpf.TaskbarNotification;
+using PrintoCrypt.App.Localization;
 using PrintoCrypt.App.Views;
 
 namespace PrintoCrypt.App.Services;
@@ -14,7 +15,7 @@ public sealed class TrayIconService : IDisposable
         _host = host;
         _icon = new TaskbarIcon
         {
-            ToolTipText = "PrintoCrypt – encrypted PDF printer",
+            ToolTipText = L.Get("TrayTooltip"),
             Icon = System.Drawing.SystemIcons.Shield
         };
 
@@ -31,13 +32,13 @@ public sealed class TrayIconService : IDisposable
     {
         var menu = new System.Windows.Controls.ContextMenu();
 
-        var settings = new System.Windows.Controls.MenuItem { Header = "Settings" };
+        var settings = new System.Windows.Controls.MenuItem { Header = L.Get("TraySettings") };
         settings.Click += (_, _) => _host.ShowSettings();
 
-        var openFolder = new System.Windows.Controls.MenuItem { Header = "Open output folder" };
+        var openFolder = new System.Windows.Controls.MenuItem { Header = L.Get("TrayOpenOutputFolder") };
         openFolder.Click += (_, _) => _host.OpenOutputFolder();
 
-        var exit = new System.Windows.Controls.MenuItem { Header = "Exit" };
+        var exit = new System.Windows.Controls.MenuItem { Header = L.Get("TrayExit") };
         exit.Click += (_, _) => _host.Shutdown();
 
         menu.Items.Add(settings);

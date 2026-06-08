@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="AppTitle" xml:space="preserve">
+    <value>PrintoCrypt</value>
+  </data>
+  <data name="MainWindow_Title" xml:space="preserve">
+    <value>Nastavení PrintoCrypt</value>
+  </data>
+  <data name="MainWindow_Subtitle" xml:space="preserve">
+    <value>Virtuální tiskárna pro tisk heslem chráněných PDF souborů.</value>
+  </data>
+  <data name="OutputFolder" xml:space="preserve">
+    <value>Výstupní složka</value>
+  </data>
+  <data name="Browse" xml:space="preserve">
+    <value>Procházet</value>
+  </data>
+  <data name="ListenPort" xml:space="preserve">
+    <value>Port pro naslouchání</value>
+  </data>
+  <data name="OpenOutlook" xml:space="preserve">
+    <value>Otevřít Outlook s přiloženým šifrovaným PDF</value>
+  </data>
+  <data name="OpenFolderAfterSave" xml:space="preserve">
+    <value>Po uložení otevřít výstupní složku</value>
+  </data>
+  <data name="StartupWithWindows" xml:space="preserve">
+    <value>Spustit PrintoCrypt se startem Windows</value>
+  </data>
+  <data name="PrinterSetup" xml:space="preserve">
+    <value>Nastavení tiskárny</value>
+  </data>
+  <data name="PrinterSetupDescription" xml:space="preserve">
+    <value>Nainstaluje virtuální tiskárnu PrintoCrypt (vyžaduje oprávnění správce). Používá Microsoft Print To PDF na TCP portu 9150. Při tisku nechte PrintoCrypt spuštěný na panelu úloh.</value>
+  </data>
+  <data name="InstallPrinter" xml:space="preserve">
+    <value>Nainstalovat tiskárnu (PowerShell)</value>
+  </data>
+  <data name="UninstallPrinter" xml:space="preserve">
+    <value>Odinstalovat tiskárnu</value>
+  </data>
+  <data name="Close" xml:space="preserve">
+    <value>Zavřít</value>
+  </data>
+  <data name="Save" xml:space="preserve">
+    <value>Uložit</value>
+  </data>
+  <data name="SettingsSaved" xml:space="preserve">
+    <value>Nastavení uložena.</value>
+  </data>
+  <data name="InvalidListenPort" xml:space="preserve">
+    <value>Port pro naslouchání musí být v rozsahu 1024–65535.</value>
+  </data>
+  <data name="ScriptNotFound" xml:space="preserve">
+    <value>Soubor {0} nebyl nalezen. Spusťte jej ručně ze složky scripts vedle PrintoCrypt.exe.</value>
+  </data>
+  <data name="SaveValidPortBeforeInstall" xml:space="preserve">
+    <value>Před instalací tiskárny uložte platný port pro naslouchání (1024–65535).</value>
+  </data>
+  <data name="PrinterInstallCancelled" xml:space="preserve">
+    <value>Instalace tiskárny byla zrušena nebo se nepodařila spustit.</value>
+  </data>
+  <data name="ActionCompleted" xml:space="preserve">
+    <value>{0} dokončeno.</value>
+  </data>
+  <data name="ActionFailed" xml:space="preserve">
+    <value>{0} se nezdařilo (kód ukončení {1}). Podrobnosti zobrazíte ve zvýšeném PowerShellu:
+
+powershell -ExecutionPolicy Bypass -File "{2}" -Port {3}</value>
+  </data>
+  <data name="AdminApprovalCancelled" xml:space="preserve">
+    <value>Bylo vyžadováno schválení správce a požadavek byl zrušen.</value>
+  </data>
+  <data name="InstallPrinterAction" xml:space="preserve">
+    <value>Instalace tiskárny</value>
+  </data>
+  <data name="UninstallPrinterAction" xml:space="preserve">
+    <value>Odinstalace tiskárny</value>
+  </data>
+  <data name="PasswordDialog_Title" xml:space="preserve">
+    <value>PrintoCrypt – Heslo k PDF</value>
+  </data>
+  <data name="EncryptPrintJob" xml:space="preserve">
+    <value>Zašifrovat tiskovou úlohu</value>
+  </data>
+  <data name="Password" xml:space="preserve">
+    <value>Heslo</value>
+  </data>
+  <data name="ConfirmPassword" xml:space="preserve">
+    <value>Potvrzení hesla</value>
+  </data>
+  <data name="Cancel" xml:space="preserve">
+    <value>Zrušit</value>
+  </data>
+  <data name="Confirm" xml:space="preserve">
+    <value>Potvrdit</value>
+  </data>
+  <data name="Submit" xml:space="preserve">
+    <value>Potvrdit</value>
+  </data>
+  <data name="UntitledDocument" xml:space="preserve">
+    <value>Dokument bez názvu</value>
+  </data>
+  <data name="EnterPassword" xml:space="preserve">
+    <value>Zadejte heslo.</value>
+  </data>
+  <data name="PasswordMinLength" xml:space="preserve">
+    <value>Heslo musí mít alespoň 4 znaky.</value>
+  </data>
+  <data name="PasswordsDoNotMatch" xml:space="preserve">
+    <value>Hesla se neshodují.</value>
+  </data>
+  <data name="TrayTooltip" xml:space="preserve">
+    <value>PrintoCrypt – tiskárna pro šifrované PDF</value>
+  </data>
+  <data name="TraySettings" xml:space="preserve">
+    <value>Nastavení</value>
+  </data>
+  <data name="TrayOpenOutputFolder" xml:space="preserve">
+    <value>Otevřít výstupní složku</value>
+  </data>
+  <data name="TrayExit" xml:space="preserve">
+    <value>Ukončit</value>
+  </data>
+  <data name="Notification_OutlookTitle" xml:space="preserve">
+    <value>Outlook</value>
+  </data>
+  <data name="Notification_OutlookDraftOpened" xml:space="preserve">
+    <value>Koncept e-mailu s {0}</value>
+  </data>
+  <data name="Notification_PrintSaved" xml:space="preserve">
+    <value>Tisk uložen</value>
+  </data>
+  <data name="Notification_PrintCancelled" xml:space="preserve">
+    <value>Tisk zrušen</value>
+  </data>
+  <data name="Notification_PrintFailed" xml:space="preserve">
+    <value>Tisk se nezdařil</value>
+  </data>
+  <data name="AdminOnlyPort" xml:space="preserve">
+    <value>Port pro naslouchání může měnit pouze správce.</value>
+  </data>
+  <data name="AdminOnlyPrinter" xml:space="preserve">
+    <value>Instalace a odinstalace tiskárny vyžaduje oprávnění správce.</value>
+  </data>
+  <data name="UserSettingsTab" xml:space="preserve">
+    <value>Uživatelská nastavení</value>
+  </data>
+  <data name="GlobalSettingsTab" xml:space="preserve">
+    <value>Globální nastavení</value>
+  </data>
+  <data name="GlobalSettingsDescription" xml:space="preserve">
+    <value>Tato nastavení platí pro všechny uživatele tohoto počítače a vyžadují schválení správce.</value>
+  </data>
+  <data name="GlobalSettingsLockedTitle" xml:space="preserve">
+    <value>Vyžadováno schválení správce</value>
+  </data>
+  <data name="GlobalSettingsLockedText" xml:space="preserve">
+    <value>Globální nastavení lze zobrazit a změnit až po schválení výzvy správce.</value>
+  </data>
+  <data name="UnlockGlobalSettings" xml:space="preserve">
+    <value>Pokračovat jako správce</value>
+  </data>
+  <data name="UseEmailTemplates" xml:space="preserve">
+    <value>Používat e-mailové šablony v dialogu pro heslo</value>
+  </data>
+  <data name="EmailTemplates" xml:space="preserve">
+    <value>E-mailové šablony</value>
+  </data>
+  <data name="EmailTemplatesHelp" xml:space="preserve">
+    <value>Zástupné symboly: {DocumentTitle}, {FileName}, {Date}, {Time}</value>
+  </data>
+  <data name="AddTemplate" xml:space="preserve">
+    <value>Přidat šablonu</value>
+  </data>
+  <data name="RemoveTemplate" xml:space="preserve">
+    <value>Odebrat</value>
+  </data>
+  <data name="NewTemplateName" xml:space="preserve">
+    <value>Šablona {0}</value>
+  </data>
+  <data name="EmailTemplateName" xml:space="preserve">
+    <value>Název šablony</value>
+  </data>
+  <data name="EmailTemplateSubject" xml:space="preserve">
+    <value>Předmět</value>
+  </data>
+  <data name="EmailTemplateBody" xml:space="preserve">
+    <value>Text zprávy</value>
+  </data>
+  <data name="EmailTemplateSelect" xml:space="preserve">
+    <value>E-mailová šablona</value>
+  </data>
+  <data name="EmailTemplateNothing" xml:space="preserve">
+    <value>Žádná</value>
+  </data>
+  <data name="EmailTemplateDefault" xml:space="preserve">
+    <value>Výchozí šablona</value>
+  </data>
+  <data name="SelectEmailTemplate" xml:space="preserve">
+    <value>Vyberte e-mailovou šablonu.</value>
+  </data>
+</root>

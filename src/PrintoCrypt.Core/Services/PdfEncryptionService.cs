@@ -24,7 +24,6 @@ public sealed class PdfEncryptionService
         security.PermitAnnotations = false;
         security.PermitFormsFill = false;
         security.PermitAssembleDocument = false;
-        security.PermitAccessibilityExtractContent = false;
 
         var directory = Path.GetDirectoryName(destinationPdfPath);
         if (!string.IsNullOrEmpty(directory))
