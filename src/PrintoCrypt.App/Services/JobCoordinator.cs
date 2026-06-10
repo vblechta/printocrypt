@@ -9,15 +9,20 @@ public sealed class JobCoordinator
 {
     private readonly PrintJobProcessor _processor;
     private readonly AppSettings _settings;
+    private readonly AnalyticsService _analytics;
 
     public event EventHandler<JobCompletionInfo>? JobCompleted;
     public event EventHandler<string>? JobCancelled;
     public event EventHandler<(PrintJobInfo Job, Exception Error)>? JobFailed;
 
-    public JobCoordinator(PrintJobProcessor processor, AppSettings settings)
+    public JobCoordinator(
+        PrintJobProcessor processor,
+        AppSettings settings,
+        AnalyticsService analytics)
     {
         _processor = processor;
         _settings = settings;
+        _analytics = analytics;
     }
 
     public async Task HandleJobAsync(
@@ -33,6 +38,8 @@ public sealed class JobCoordinator
                 TryDelete(job.SourcePath);
                 return;
             }
+
+            _analytics.TrackUsage();
 
             var displayName = SanitizeDisplayName(job.DocumentTitle ?? job.JobId);
 

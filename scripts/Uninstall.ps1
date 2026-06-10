@@ -4,6 +4,7 @@ param(
     [int]$Port = 9150,
     [string]$PrinterName = "PrintoCrypt",
     [switch]$PrinterOnly,
+    [switch]$SkipAppRemoval,
     [switch]$Quiet
 )
 
@@ -12,6 +13,14 @@ $ErrorActionPreference = "Stop"
 $SpoolerScript = Join-Path $PSScriptRoot "PrintoCrypt-Spooler.ps1"
 if (Test-Path $SpoolerScript) {
     . $SpoolerScript
+}
+
+$AnalyticsScript = Join-Path $PSScriptRoot "PrintoCrypt-Analytics.ps1"
+if (-not (Test-Path $AnalyticsScript)) {
+    $AnalyticsScript = Join-Path $InstallDir "PrintoCrypt-Analytics.ps1"
+}
+if (Test-Path $AnalyticsScript) {
+    . $AnalyticsScript
 }
 
 function Test-IsAdministrator {
@@ -129,7 +138,50 @@ function Remove-Shortcuts {
     }
 }
 
+function Get-InstalledPrintoCryptVersionForUninstall {
+    param(
+        [string]$InstallDir,
+        [string]$ExePath
+    )
+
+    foreach ($registryPath in @(
+            "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{8F4E2A61-9C3D-4B15-9E7A-1D2F8C6B4A90}_is1",
+            "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintoCrypt"
+        )) {
+        if (-not (Test-Path $registryPath)) {
+            continue
+        }
+
+        $registryVersion = (Get-ItemProperty -Path $registryPath -Name DisplayVersion -ErrorAction SilentlyContinue).DisplayVersion
+        if (-not [string]::IsNullOrWhiteSpace($registryVersion)) {
+            return [string]$registryVersion
+        }
+    }
+
+    if (Get-Command Get-PrintoCryptVersionFromExe -ErrorAction SilentlyContinue) {
+        return Get-PrintoCryptVersionFromExe -ExePath $ExePath
+    }
+
+    if (-not (Test-Path $ExePath)) {
+        return "unknown"
+    }
+
+    $fileVersion = (Get-Item $ExePath).VersionInfo
+    $version = $fileVersion.ProductVersion
+    if ([string]::IsNullOrWhiteSpace($version)) {
+        $version = $fileVersion.FileVersion
+    }
+
+    if ([string]::IsNullOrWhiteSpace($version)) {
+        return "unknown"
+    }
+
+    return $version
+}
+
 function Remove-PrintoCryptApp {
+    param([switch]$SkipDirectoryRemoval)
+
     Write-Step "Removing PrintoCrypt from '$InstallDir'..."
 
     Get-Process -Name "PrintoCrypt" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -142,9 +194,29 @@ function Remove-PrintoCryptApp {
         Remove-Item -Path $uninstallKey -Recurse -Force
     }
 
-    if (Test-Path $InstallDir) {
-        Remove-Item -Path $InstallDir -Recurse -Force
+    if ($SkipDirectoryRemoval -or -not (Test-Path $InstallDir)) {
+        return
     }
+
+    $installDirLiteral = (Resolve-Path $InstallDir).Path
+    $runningFromInstallDir = $PSCommandPath.StartsWith($installDirLiteral, [StringComparison]::OrdinalIgnoreCase)
+
+    if ($runningFromInstallDir) {
+        Get-ChildItem -LiteralPath $installDirLiteral -Force |
+            Where-Object { $_.FullName -ne $PSCommandPath } |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+        $cleanupCommand = "Start-Sleep -Seconds 3; Remove-Item -LiteralPath '$installDirLiteral' -Recurse -Force -ErrorAction SilentlyContinue"
+        Start-Process -FilePath "powershell.exe" -ArgumentList @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-WindowStyle", "Hidden",
+            "-Command", $cleanupCommand
+        ) -WindowStyle Hidden | Out-Null
+        return
+    }
+
+    Remove-Item -LiteralPath $installDirLiteral -Recurse -Force
 }
 
 try {
@@ -152,10 +224,19 @@ try {
         Write-Step "Uninstalling PrintoCrypt..."
     }
 
+    $exePath = Join-Path $InstallDir "PrintoCrypt.exe"
+    $installedVersion = Get-InstalledPrintoCryptVersionForUninstall -InstallDir $InstallDir -ExePath $exePath
+
+    if (-not $PrinterOnly) {
+        if (Get-Command Send-PrintoCryptAnalytics -ErrorAction SilentlyContinue) {
+            Send-PrintoCryptAnalytics -Action uninstall -Version $installedVersion
+        }
+    }
+
     Remove-PrintoCryptPrinter
 
     if (-not $PrinterOnly) {
-        Remove-PrintoCryptApp
+        Remove-PrintoCryptApp -SkipDirectoryRemoval:$SkipAppRemoval
         Write-Ok "PrintoCrypt uninstalled."
     }
     else {

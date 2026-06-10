@@ -102,7 +102,8 @@ public sealed class ApplicationHost
     {
         var coordinator = new JobCoordinator(
             new PrintJobProcessor(new WpfXpsToPdfConverter(), new PdfEncryptionService()),
-            settings);
+            settings,
+            new AnalyticsService());
 
         coordinator.JobCompleted += (_, info) =>
         {

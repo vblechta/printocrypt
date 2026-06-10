@@ -8,7 +8,9 @@ param(
     [switch]$SkipLaunch,
     [switch]$SkipAppCopy,
     [switch]$Quiet,
-    [string]$ResultFile = ""
+    [string]$ResultFile = "",
+    [ValidateSet("install", "update", "")]
+    [string]$AnalyticsAction = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,6 +18,11 @@ $ErrorActionPreference = "Stop"
 $SpoolerScript = Join-Path $PSScriptRoot "PrintoCrypt-Spooler.ps1"
 if (Test-Path $SpoolerScript) {
     . $SpoolerScript
+}
+
+$AnalyticsScript = Join-Path $PSScriptRoot "PrintoCrypt-Analytics.ps1"
+if (Test-Path $AnalyticsScript) {
+    . $AnalyticsScript
 }
 
 function Test-IsAdministrator {
@@ -86,6 +93,123 @@ function Show-InstallFailure {
         if ([string]::IsNullOrWhiteSpace($ResultFile) -and [Environment]::UserInteractive) {
             Read-Host "Press Enter to close"
         }
+    }
+}
+
+function Get-VersionPart {
+    param([ref]$VersionText)
+
+    if ([string]::IsNullOrWhiteSpace($VersionText.Value)) {
+        return 0
+    }
+
+    $dotIndex = $VersionText.Value.IndexOf(".")
+    if ($dotIndex -ge 0) {
+        $partText = $VersionText.Value.Substring(0, $dotIndex)
+        $VersionText.Value = $VersionText.Value.Substring($dotIndex + 1)
+    }
+    else {
+        $partText = $VersionText.Value
+        $VersionText.Value = ""
+    }
+
+    if ([string]::IsNullOrWhiteSpace($partText)) {
+        return 0
+    }
+
+    return [int]$partText
+}
+
+function Compare-VersionStrings {
+    param(
+        [string]$Left,
+        [string]$Right
+    )
+
+    $leftText = $Left
+    $rightText = $Right
+
+    for ($index = 0; $index -lt 4; $index++) {
+        $leftPart = Get-VersionPart ([ref]$leftText)
+        $rightPart = Get-VersionPart ([ref]$rightText)
+
+        if ($leftPart -gt $rightPart) {
+            return 1
+        }
+
+        if ($leftPart -lt $rightPart) {
+            return -1
+        }
+    }
+
+    return 0
+}
+
+function Get-InstalledPrintoCryptVersion {
+    param([string]$InstallDir)
+
+    $candidates = @()
+
+    foreach ($registryPath in @(
+            "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{8F4E2A61-9C3D-4B15-9E7A-1D2F8C6B4A90}_is1",
+            "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintoCrypt"
+        )) {
+        if (-not (Test-Path $registryPath)) {
+            continue
+        }
+
+        $registryVersion = (Get-ItemProperty -Path $registryPath -Name DisplayVersion -ErrorAction SilentlyContinue).DisplayVersion
+        if (-not [string]::IsNullOrWhiteSpace($registryVersion)) {
+            $candidates += [string]$registryVersion
+        }
+    }
+
+    $exePath = Join-Path $InstallDir "PrintoCrypt.exe"
+    if (Test-Path $exePath) {
+        $exeVersion = Get-PrintoCryptVersionFromExe -ExePath $exePath
+        if ($exeVersion -ne "unknown") {
+            $candidates += $exeVersion
+        }
+    }
+
+    if ($candidates.Count -eq 0) {
+        return $null
+    }
+
+    $bestVersion = $candidates[0]
+    foreach ($candidate in $candidates[1..($candidates.Count - 1)]) {
+        if ((Compare-VersionStrings -Left $candidate -Right $bestVersion) -gt 0) {
+            $bestVersion = $candidate
+        }
+    }
+
+    return $bestVersion
+}
+
+function Resolve-InstallAnalyticsAction {
+    param(
+        [string]$InstallDir,
+        [string]$InstallerVersion
+    )
+
+    $installedVersion = Get-InstalledPrintoCryptVersion -InstallDir $InstallDir
+    if ($null -eq $installedVersion) {
+        return @{
+            ShouldSkip = $false
+            Action     = "install"
+        }
+    }
+
+    if ((Compare-VersionStrings -Left $installedVersion -Right $InstallerVersion) -ge 0) {
+        return @{
+            ShouldSkip = $true
+            Action     = ""
+        }
+    }
+
+    return @{
+        ShouldSkip = $false
+        Action     = "update"
     }
 }
 
@@ -342,6 +466,10 @@ function Install-PrintoCryptApp {
     if (Test-Path $uninstallScript) {
         Copy-Item -Path $uninstallScript -Destination (Join-Path $DestinationDir "Uninstall.ps1") -Force
     }
+    $analyticsScript = Join-Path (Split-Path $PSCommandPath -Parent) "PrintoCrypt-Analytics.ps1"
+    if (Test-Path $analyticsScript) {
+        Copy-Item -Path $analyticsScript -Destination (Join-Path $DestinationDir "PrintoCrypt-Analytics.ps1") -Force
+    }
 }
 
 function Update-UserSettings {
@@ -417,7 +545,7 @@ function Register-UninstallEntry {
 
     New-Item -Path $uninstallKey -Force | Out-Null
     Set-ItemProperty -Path $uninstallKey -Name "DisplayName" -Value "PrintoCrypt"
-    Set-ItemProperty -Path $uninstallKey -Name "DisplayVersion" -Value "1.0.0"
+    Set-ItemProperty -Path $uninstallKey -Name "DisplayVersion" -Value (Get-PrintoCryptVersionFromExe -ExePath $ExePath)
     Set-ItemProperty -Path $uninstallKey -Name "Publisher" -Value "PrintoCrypt"
     Set-ItemProperty -Path $uninstallKey -Name "InstallLocation" -Value $InstallDirectory
     Set-ItemProperty -Path $uninstallKey -Name "DisplayIcon" -Value $ExePath
@@ -520,6 +648,35 @@ try {
 
     $exePath = Join-Path $InstallDir "PrintoCrypt.exe"
 
+    if (-not $PrinterOnly -and [string]::IsNullOrWhiteSpace($AnalyticsAction)) {
+        $installerVersion = "unknown"
+        if (-not $SkipAppCopy) {
+            $packageRoot = Resolve-PackageRoot
+            $sourceAppDir = Resolve-SourceAppDir -Root $packageRoot
+            $installerVersion = Get-PrintoCryptVersionFromExe -ExePath (Join-Path $sourceAppDir "PrintoCrypt.exe")
+        }
+        elseif (Test-Path $exePath) {
+            $installerVersion = Get-PrintoCryptVersionFromExe -ExePath $exePath
+        }
+
+        if ($installerVersion -ne "unknown") {
+            $installIntent = Resolve-InstallAnalyticsAction -InstallDir $InstallDir -InstallerVersion $installerVersion
+            if ($installIntent.ShouldSkip) {
+                if (-not $Quiet) {
+                    Write-Host "PrintoCrypt $installerVersion is already installed." -ForegroundColor Yellow
+                }
+
+                Write-Result -Success $true -Message "Already installed."
+                exit 0
+            }
+
+            $AnalyticsAction = $installIntent.Action
+        }
+        else {
+            $AnalyticsAction = "install"
+        }
+    }
+
     if (-not $PrinterOnly -and -not $SkipAppCopy) {
         $packageRoot = Resolve-PackageRoot
         $sourceAppDir = Resolve-SourceAppDir -Root $packageRoot
@@ -558,6 +715,10 @@ try {
     else {
         $message = "Printer '$PrinterName' installed successfully."
         Write-Ok $message
+    }
+
+    if (-not $PrinterOnly) {
+        Send-PrintoCryptAnalytics -Action $AnalyticsAction -ExePath $exePath
     }
 
     Write-Result -Success $true -Message $message
