@@ -5,36 +5,74 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-
-      - name: Restore
-        run: dotnet restore PrintoCrypt.sln
-
-      - name: Build
-        run: dotnet build PrintoCrypt.sln -c Release --no-restore
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            **/*.props
+            PrintoCrypt.sln
 
       - name: Install Inno Setup
+        if: github.event_name != 'pull_request'
         run: choco install innosetup -y --no-progress
 
-      - name: Build installer package
-        run: powershell -ExecutionPolicy Bypass -File scripts/Build-Installer.ps1 -OutputDir artifacts/PrintoCrypt-Setup
+      - name: Build setup package
+        shell: pwsh
+        run: |
+          $params = @{
+            OutputDir = 'artifacts/PrintoCrypt-Setup'
+          }
 
-      - name: Upload artifact
+          if ('${{ github.event_name }}' -eq 'pull_request') {
+            $params.SkipInno = $true
+          }
+
+          ./scripts/Build-Installer.ps1 @params
+
+          if ('${{ github.event_name }}' -ne 'pull_request' -and -not (Test-Path 'artifacts/PrintoCrypt-Setup.exe')) {
+            throw 'PrintoCrypt-Setup.exe was not produced.'
+          }
+
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $version = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version
+          "value=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Upload setup package
         uses: actions/upload-artifact@v4
         with:
-          name: PrintoCrypt-win-x64
+          name: PrintoCrypt-Setup-${{ steps.version.outputs.value }}-${{ github.run_number }}
           path: |
             artifacts/PrintoCrypt-Setup
             artifacts/PrintoCrypt-Setup.zip
-            artifacts/PrintoCrypt-Setup.exe
+          if-no-files-found: error
+
+      - name: Upload installer exe
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrintoCrypt-Setup-${{ steps.version.outputs.value }}-${{ github.run_number }}-installer
+          path: artifacts/PrintoCrypt-Setup.exe
+          if-no-files-found: error
