@@ -146,6 +146,12 @@ powershell -ExecutionPolicy Bypass -File "{2}" -Port {3}</value>
   <data name="Notification_PrintCancelled" xml:space="preserve">
     <value>Print cancelled</value>
   </data>
+  <data name="Notification_BrokerTitle" xml:space="preserve">
+    <value>PrintoCrypt</value>
+  </data>
+  <data name="Notification_BrokerNotRunning" xml:space="preserve">
+    <value>The print broker is not running. Reinstall or run the PrintoCrypt Broker scheduled task as administrator.</value>
+  </data>
   <data name="Notification_PrintFailed" xml:space="preserve">
     <value>Print failed</value>
   </data>

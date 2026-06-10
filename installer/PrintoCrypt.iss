@@ -29,7 +29,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupLogging=yes
 CloseApplications=force
 CloseApplicationsFilter={#MyAppExeName}
-AppMutex=PrintoCrypt_SingleInstance
+AppMutex=PrintoCrypt_Broker
 RestartApplications=no
 UsePreviousAppDir=yes
 MinVersion=10.0
@@ -249,4 +249,16 @@ begin
 
   StopRunningPrintoCrypt;
   Result := True;
+end;
+
+function InitializeUninstall: Boolean;
+begin
+  StopRunningPrintoCrypt;
+  Result := True;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usAppMutexCheck then
+    StopRunningPrintoCrypt;
 end;

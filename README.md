@@ -23,8 +23,9 @@ flowchart LR
 ## Requirements
 
 - **Windows 10/11**
-- **[.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)** (if not using self-contained build)
 - **Microsoft Outlook** (optional) — for attaching encrypted PDFs to a new email after printing
+
+The setup package ships a **self-contained** build (no separate .NET install required). If you use a framework-dependent build instead, the installer will install the .NET 8 Desktop Runtime automatically when needed.
 
 ## Build
 
@@ -33,7 +34,7 @@ On Windows with the .NET 8 SDK:
 ```powershell
 dotnet restore PrintoCrypt.sln
 dotnet build PrintoCrypt.sln -c Release
-dotnet publish src/PrintoCrypt.App/PrintoCrypt.App.csproj -c Release -r win-x64 -o publish
+dotnet publish src/PrintoCrypt.App/PrintoCrypt.App.csproj -c Release -r win-x64 --self-contained true -o publish
 ```
 
 Build a setup package:
@@ -109,7 +110,7 @@ The installer:
 
 - Installs PrintoCrypt to `%ProgramFiles%\PrintoCrypt`
 - Registers the **PrintoCrypt** printer for **all users** on the PC
-- Enables **Start with Windows** for the logged-on user
+- Registers **Start with Windows** for all users (machine Run key)
 - Creates Start Menu shortcuts
 - Starts the tray app
 
@@ -140,7 +141,7 @@ From the app, **Settings → Install/Uninstall printer** only changes the printe
 | Listen port | TCP port for the virtual printer (default `9150`) |
 | Open Outlook after saving | Compose a new Outlook email with the PDF attached |
 | Open output folder after saving | Show the saved file in Explorer |
-| Start with Windows | Register PrintoCrypt in the current-user Run key |
+| Start with Windows | Register PrintoCrypt in the machine Run key (all users) |
 
 ## Project structure
 

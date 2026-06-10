@@ -6,6 +6,7 @@ using Microsoft.Win32;
 using PrintoCrypt.App.Localization;
 using PrintoCrypt.App.Services;
 using PrintoCrypt.Core.Models;
+using PrintoCrypt.Core.Services;
 
 namespace PrintoCrypt.App.Views;
 
@@ -13,18 +14,18 @@ public partial class MainWindow : Window
 {
     private readonly AppSettings _settings;
     private readonly Action<AppSettings> _saveSettings;
-    private readonly Action<AppSettings> _restartServer;
+    private readonly Action<AppSettings> _applyMachineSettings;
     private readonly List<EmailTemplate> _emailTemplates = [];
     private bool _updatingTemplateFields;
     private bool _globalSettingsUnlocked;
 
-    public MainWindow(AppSettings settings, Action<AppSettings> saveSettings, Action<AppSettings> restartServer)
+    public MainWindow(AppSettings settings, Action<AppSettings> saveSettings, Action<AppSettings> applyMachineSettings)
     {
         InitializeComponent();
         ApplyLocalization();
         _settings = settings;
         _saveSettings = saveSettings;
-        _restartServer = restartServer;
+        _applyMachineSettings = applyMachineSettings;
         LoadFields();
 
         if (AdminHelper.IsRunningAsAdministrator())
@@ -73,8 +74,10 @@ public partial class MainWindow : Window
 
     private void LoadFields()
     {
+        var machineSettings = new MachineSettingsStore().Load();
+
         OutputDirectoryBox.Text = _settings.OutputDirectory;
-        ListenPortBox.Text = _settings.ListenPort.ToString();
+        ListenPortBox.Text = machineSettings.ListenPort.ToString();
         OpenOutlookCheckBox.IsChecked = _settings.OpenOutlookAfterSave;
         OpenFolderCheckBox.IsChecked = _settings.OpenOutputFolderAfterSave;
         StartupCheckBox.IsChecked = _settings.StartWithWindows;
@@ -265,7 +268,10 @@ public partial class MainWindow : Window
             var updated = ReadFields();
             Directory.CreateDirectory(updated.OutputDirectory);
             _saveSettings(updated);
-            _restartServer(updated);
+            if (_globalSettingsUnlocked && SettingsTabs.SelectedItem == GlobalSettingsTabItem)
+            {
+                _applyMachineSettings(updated);
+            }
             MessageBox.Show(L.Get("SettingsSaved"), L.Get("AppTitle"), MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)

@@ -41,7 +41,7 @@ try {
     dotnet restore $solutionPath
     if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed." }
 
-    dotnet publish $projectPath -c $Configuration -r $Runtime --self-contained false -o $appOutputDir
+    dotnet publish $projectPath -c $Configuration -r $Runtime --self-contained true -p:PublishSingleFile=false -o $appOutputDir
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed." }
 }
 finally {

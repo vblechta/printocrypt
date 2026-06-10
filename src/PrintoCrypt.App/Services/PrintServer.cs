@@ -8,6 +8,7 @@ public sealed class PrintServer : IDisposable
 {
     private readonly int _port;
     private readonly string _spoolDirectory;
+    private readonly Func<string?>? _resolvePrintingUser;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private Task? _acceptLoop;
@@ -18,10 +19,11 @@ public sealed class PrintServer : IDisposable
 
     public bool IsRunning => _listener is not null;
 
-    public PrintServer(int port, string spoolDirectory)
+    public PrintServer(int port, string spoolDirectory, Func<string?>? resolvePrintingUser = null)
     {
         _port = port;
         _spoolDirectory = spoolDirectory;
+        _resolvePrintingUser = resolvePrintingUser;
         Directory.CreateDirectory(_spoolDirectory);
     }
 
@@ -71,6 +73,7 @@ public sealed class PrintServer : IDisposable
         using (client)
         {
             client.ReceiveTimeout = 120_000;
+            var resolvedUser = _resolvePrintingUser?.Invoke();
 
             var jobId = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
             var jobPath = Path.Combine(_spoolDirectory, $"{jobId}.job");
@@ -95,7 +98,7 @@ public sealed class PrintServer : IDisposable
                 JobId = jobId,
                 SourcePath = jobPath,
                 DocumentTitle = documentTitle,
-                UserName = Environment.UserName
+                UserName = resolvedUser ?? Environment.UserName
             };
 
             JobReceived?.Invoke(this, job);

@@ -21,6 +21,9 @@ if (Test-Path $SpoolerScript) {
 }
 
 $AnalyticsScript = Join-Path $PSScriptRoot "PrintoCrypt-Analytics.ps1"
+if (-not (Test-Path $AnalyticsScript)) {
+    $AnalyticsScript = Join-Path $InstallDir "PrintoCrypt-Analytics.ps1"
+}
 if (Test-Path $AnalyticsScript) {
     . $AnalyticsScript
 }
@@ -213,13 +216,138 @@ function Resolve-InstallAnalyticsAction {
     }
 }
 
+function Test-IsSelfContainedApp {
+    param([string]$AppDir)
+
+    if (Test-Path (Join-Path $AppDir "hostfxr.dll")) {
+        return $true
+    }
+
+    $runtimeConfigPath = Join-Path $AppDir "PrintoCrypt.runtimeconfig.json"
+    if (-not (Test-Path $runtimeConfigPath)) {
+        return $false
+    }
+
+    try {
+        $runtimeConfig = Get-Content -Path $runtimeConfigPath -Raw | ConvertFrom-Json
+        return $null -ne $runtimeConfig.runtimeOptions.includedFrameworks
+    }
+    catch {
+        return $false
+    }
+}
+
+function Test-DotNetDesktopRuntimeInstalled {
+    param([int]$MajorVersion = 8)
+
+    $registryRoots = @(
+        "HKLM:\SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App",
+        "HKLM:\SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
+    )
+
+    foreach ($registryRoot in $registryRoots) {
+        if (-not (Test-Path $registryRoot)) {
+            continue
+        }
+
+        $installedVersions = Get-ChildItem -Path $registryRoot -ErrorAction SilentlyContinue |
+            Where-Object { $_.PSChildName -match "^$MajorVersion\." }
+
+        if ($installedVersions) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Install-DotNetDesktopRuntime {
+    param([int]$MajorVersion = 8)
+
+    Write-Step "Installing .NET $MajorVersion Desktop Runtime..."
+
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if ($winget) {
+        & winget install --id "Microsoft.DotNet.DesktopRuntime.$MajorVersion" `
+            --accept-package-agreements `
+            --accept-source-agreements `
+            --silent | Out-Null
+
+        if ($LASTEXITCODE -eq 0 -or (Test-DotNetDesktopRuntimeInstalled -MajorVersion $MajorVersion)) {
+            Write-Ok ".NET $MajorVersion Desktop Runtime is installed."
+            return
+        }
+    }
+
+    $installerUrl = "https://aka.ms/dotnet/$MajorVersion.0/windowsdesktopruntime-win-x64.exe"
+    $installerPath = Join-Path $env:TEMP "windowsdesktop-runtime-$MajorVersion-win-x64.exe"
+
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath -UseBasicParsing
+    }
+    catch {
+        throw "Could not download the .NET $MajorVersion Desktop Runtime installer: $($_.Exception.Message)"
+    }
+
+    $process = Start-Process -FilePath $installerPath -ArgumentList "/install", "/quiet", "/norestart" -Wait -PassThru
+    Remove-Item -Path $installerPath -Force -ErrorAction SilentlyContinue
+
+    if ($process.ExitCode -notin 0, 1638, 3010) {
+        throw "Failed to install the .NET $MajorVersion Desktop Runtime (exit code $($process.ExitCode))."
+    }
+
+    Write-Ok ".NET $MajorVersion Desktop Runtime is installed."
+}
+
+function Ensure-PrintoCryptRuntime {
+    param([string]$AppDir)
+
+    if (Test-IsSelfContainedApp -AppDir $AppDir) {
+        return
+    }
+
+    if (Test-DotNetDesktopRuntimeInstalled -MajorVersion 8) {
+        return
+    }
+
+    Install-DotNetDesktopRuntime -MajorVersion 8
+
+    if (-not (Test-DotNetDesktopRuntimeInstalled -MajorVersion 8)) {
+        throw "PrintoCrypt requires the .NET 8 Desktop Runtime and automatic installation failed."
+    }
+}
+
 function Get-InteractiveUser {
-    $session = Get-CimInstance -ClassName Win32_ComputerSystem
-    if ($session.UserName) {
+    $session = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+    if ($session -and $session.UserName) {
         return $session.UserName
     }
 
-    return $null
+    $explorer = Get-Process -Name explorer -ErrorAction SilentlyContinue |
+        Where-Object { $_.SessionId -gt 0 } |
+        Sort-Object StartTime -Descending |
+        Select-Object -First 1
+
+    if (-not $explorer) {
+        return $null
+    }
+
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($explorer.Id)" -ErrorAction SilentlyContinue
+    if (-not $process) {
+        return $null
+    }
+
+    $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner
+    if ($owner.ReturnValue -ne 0 -or [string]::IsNullOrWhiteSpace($owner.User)) {
+        return $null
+    }
+
+    if ($owner.Domain -and $owner.Domain -ne "." -and $owner.Domain -ne $env:COMPUTERNAME) {
+        return "$($owner.Domain)\$($owner.User)"
+    }
+
+    return "$env:COMPUTERNAME\$($owner.User)"
 }
 
 function Get-InteractiveUserSid {
@@ -519,19 +647,241 @@ function Update-UserSettings {
     Write-Ok "Updated settings for the logged-on user."
 }
 
-function Register-StartupForInteractiveUser {
+function Get-LoggedOnInteractiveUsers {
+    $users = New-Object "System.Collections.Generic.HashSet[string]" ([StringComparer]::OrdinalIgnoreCase)
+
+    Get-Process -Name explorer -ErrorAction SilentlyContinue |
+        Where-Object { $_.SessionId -gt 0 } |
+        ForEach-Object {
+            $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)" -ErrorAction SilentlyContinue
+            if (-not $proc) {
+                return
+            }
+
+            $owner = Invoke-CimMethod -InputObject $proc -MethodName GetOwner
+            if ($owner.ReturnValue -ne 0 -or [string]::IsNullOrWhiteSpace($owner.User)) {
+                return
+            }
+
+            if ($owner.Domain -and $owner.Domain -ne "." -and $owner.Domain -ne $env:COMPUTERNAME) {
+                [void]$users.Add("$($owner.Domain)\$($owner.User)")
+            }
+            else {
+                [void]$users.Add("$env:COMPUTERNAME\$($owner.User)")
+            }
+        }
+
+    return @($users)
+}
+
+function Start-PrintoCryptViaExplorer {
     param([string]$ExePath)
 
-    $sid = Get-InteractiveUserSid
-    if (-not $sid) {
-        Write-Host "Could not determine the logged-on user; startup will be configured on first app launch." -ForegroundColor Yellow
+    try {
+        Start-Process -FilePath "explorer.exe" -ArgumentList "`"$ExePath`"" -ErrorAction Stop
+        Start-Sleep -Seconds 2
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Start-PrintoCryptForUser {
+    param(
+        [string]$ExePath,
+        [string]$InstallDir,
+        [string]$UserName,
+        [switch]$AllowExplorerFallback
+    )
+
+    $workingDir = if ($InstallDir) { $InstallDir } else { Split-Path $ExePath -Parent }
+
+    if ($AllowExplorerFallback) {
+        if (Start-PrintoCryptViaExplorer -ExePath $ExePath) {
+            return $true
+        }
+    }
+
+    if (Get-Command Invoke-InInteractiveUserSession -ErrorAction SilentlyContinue) {
+        return Invoke-InInteractiveUserSession `
+            -UserName $UserName `
+            -Execute $ExePath `
+            -WorkingDirectory $workingDir `
+            -WaitSeconds 3
+    }
+
+    return $false
+}
+
+function Start-PrintoCryptForLoggedOnUsers {
+    param(
+        [string]$ExePath,
+        [string]$InstallDir
+    )
+
+    if (-not (Test-Path $ExePath)) {
+        throw "PrintoCrypt executable was not found at '$ExePath'."
+    }
+
+    Write-Step "Starting PrintoCrypt for logged-on users..."
+
+    $orderedUsers = New-Object "System.Collections.Generic.List[string]"
+    $activeUser = Get-InteractiveUser
+    if ($activeUser) {
+        [void]$orderedUsers.Add($activeUser)
+    }
+
+    foreach ($user in Get-LoggedOnInteractiveUsers) {
+        if (-not $orderedUsers.Contains($user)) {
+            [void]$orderedUsers.Add($user)
+        }
+    }
+
+    if ($orderedUsers.Count -eq 0) {
+        if (-not $Quiet) {
+            Write-Host "No interactive users are logged on. PrintoCrypt will start at the next logon." -ForegroundColor Yellow
+        }
         return
     }
 
-    $runKeyPath = "Registry::HKEY_USERS\$sid\Software\Microsoft\Windows\CurrentVersion\Run"
-    New-Item -Path $runKeyPath -Force | Out-Null
-    Set-ItemProperty -Path $runKeyPath -Name "PrintoCrypt" -Value "`"$ExePath`""
-    Write-Ok "Registered PrintoCrypt to start with Windows."
+    $startedAny = $false
+    for ($index = 0; $index -lt $orderedUsers.Count; $index++) {
+        $user = $orderedUsers[$index]
+        $allowExplorerFallback = ($index -eq 0)
+
+        if (Start-PrintoCryptForUser -ExePath $ExePath -InstallDir $InstallDir -UserName $user -AllowExplorerFallback:$allowExplorerFallback) {
+            $startedAny = $true
+            Start-Sleep -Seconds 2
+        }
+    }
+
+    if ($startedAny) {
+        Write-Ok "PrintoCrypt started for logged-on users."
+        return
+    }
+
+    if (-not $Quiet) {
+        Write-Host "PrintoCrypt could not be started automatically. It will start at the next user logon." -ForegroundColor Yellow
+    }
+}
+
+function Test-TcpPortListening {
+    param(
+        [int]$Port,
+        [string]$HostAddress = "127.0.0.1"
+    )
+
+    try {
+        $listeners = [System.Net.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
+        foreach ($endpoint in $listeners) {
+            if ($endpoint.Port -ne $Port) {
+                continue
+            }
+
+            $address = $endpoint.Address.ToString()
+            if ($address -eq $HostAddress -or $address -eq "0.0.0.0" -or $address -eq "::") {
+                return $true
+            }
+        }
+    }
+    catch {
+    }
+
+    return $false
+}
+
+function Start-PrintoCryptBroker {
+    param([int]$Port = 9150)
+
+    Write-Step "Starting PrintoCrypt broker..."
+
+    try {
+        Start-ScheduledTask -TaskPath "\PrintoCrypt\" -TaskName "PrintoCrypt Broker" -ErrorAction Stop | Out-Null
+    }
+    catch {
+        schtasks /Run /TN "\PrintoCrypt\PrintoCrypt Broker" 2>$null | Out-Null
+    }
+
+    for ($attempt = 0; $attempt -lt 15; $attempt++) {
+        if (Test-TcpPortListening -Port $Port) {
+            Write-Ok "PrintoCrypt broker is listening on port $Port."
+            return $true
+        }
+
+        Start-Sleep -Seconds 1
+    }
+
+    if (-not $Quiet) {
+        Write-Host "PrintoCrypt broker did not start listening on port $Port. Printing may not work until the broker task runs." -ForegroundColor Yellow
+    }
+
+    return $false
+}
+
+function Write-MachineSettings {
+    param(
+        [int]$Port,
+        [string]$PrinterName
+    )
+
+    $settingsDir = Join-Path $env:ProgramData "PrintoCrypt"
+    New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null
+
+    $settings = [ordered]@{
+        listenPort  = $Port
+        printerName = $PrinterName
+    }
+
+    ($settings | ConvertTo-Json -Depth 4) | Set-Content -Path (Join-Path $settingsDir "machine-settings.json") -Encoding UTF8
+}
+
+function Register-StartupForAllUsers {
+    param(
+        [string]$ExePath,
+        [string]$InstallDir,
+        [int]$Port = 9150,
+        [string]$PrinterName = "PrintoCrypt"
+    )
+
+    Write-MachineSettings -Port $Port -PrinterName $PrinterName
+
+    $taskPath = "\PrintoCrypt\"
+
+    Unregister-ScheduledTask -TaskName "PrintoCrypt Broker" -TaskPath $taskPath -Confirm:$false -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName "PrintoCrypt" -TaskPath $taskPath -Confirm:$false -ErrorAction SilentlyContinue
+
+    $brokerAction = New-ScheduledTaskAction -Execute $ExePath -Argument "--broker" -WorkingDirectory $InstallDir
+    $brokerTrigger = New-ScheduledTaskTrigger -AtStartup
+    $brokerPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+    $brokerSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+
+    Register-ScheduledTask `
+        -TaskName "PrintoCrypt Broker" `
+        -TaskPath $taskPath `
+        -Action $brokerAction `
+        -Trigger $brokerTrigger `
+        -Principal $brokerPrincipal `
+        -Settings $brokerSettings `
+        -Force | Out-Null
+
+    $userAction = New-ScheduledTaskAction -Execute $ExePath -WorkingDirectory $InstallDir
+    $userTrigger = New-ScheduledTaskTrigger -AtLogon
+    $userPrincipal = New-ScheduledTaskPrincipal -GroupId "Users" -RunLevel Limited
+    $userSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+
+    Register-ScheduledTask `
+        -TaskName "PrintoCrypt" `
+        -TaskPath $taskPath `
+        -Action $userAction `
+        -Trigger $userTrigger `
+        -Principal $userPrincipal `
+        -Settings $userSettings `
+        -Force | Out-Null
+
+    Start-PrintoCryptBroker -Port $Port
+
+    Write-Ok "Registered PrintoCrypt broker and per-user startup tasks."
 }
 
 function Register-UninstallEntry {
@@ -581,61 +931,16 @@ function New-Shortcuts {
 }
 
 function Start-PrintoCryptAsUser {
-    param([string]$ExePath)
+    param(
+        [string]$ExePath,
+        [string]$InstallDir = ""
+    )
 
-    if (-not (Test-Path $ExePath)) {
-        throw "PrintoCrypt executable was not found at '$ExePath'."
+    if ([string]::IsNullOrWhiteSpace($InstallDir)) {
+        $InstallDir = Split-Path $ExePath -Parent
     }
 
-    Write-Step "Starting PrintoCrypt in the system tray..."
-
-    try {
-        # Launch de-elevated in the interactive desktop session (works from admin installer).
-        Start-Process -FilePath "explorer.exe" -ArgumentList "`"$ExePath`""
-        Start-Sleep -Seconds 2
-
-        if (Get-Process -Name "PrintoCrypt" -ErrorAction SilentlyContinue) {
-            Write-Ok "PrintoCrypt is running in the system tray."
-            return
-        }
-    }
-    catch {
-        Write-Host "Could not launch via explorer.exe: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-
-    $currentUser = Get-InteractiveUser
-    if (-not $currentUser) {
-        if (-not $Quiet) {
-            Write-Host "PrintoCrypt was installed but could not be started automatically. Open it from the Start Menu." -ForegroundColor Yellow
-        }
-        return
-    }
-
-    $taskName = "PrintoCrypt-Launch"
-    schtasks /Delete /TN $taskName /F 2>$null | Out-Null
-
-    $startTime = (Get-Date).AddMinutes(1).ToString("HH:mm")
-    $createOutput = schtasks /Create /TN $taskName /TR "`"$ExePath`"" /SC ONCE /ST $startTime /SD (Get-Date -Format "MM/dd/yyyy") /RU $currentUser /RL LIMITED /IT /F 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        if (-not $Quiet) {
-            Write-Host "Could not create launch task: $createOutput" -ForegroundColor Yellow
-            Write-Host "Open PrintoCrypt from the Start Menu to start the tray app." -ForegroundColor Yellow
-        }
-        return
-    }
-
-    schtasks /Run /TN $taskName | Out-Null
-    Start-Sleep -Seconds 3
-    schtasks /Delete /TN $taskName /F 2>$null | Out-Null
-
-    if (Get-Process -Name "PrintoCrypt" -ErrorAction SilentlyContinue) {
-        Write-Ok "PrintoCrypt is running in the system tray."
-    }
-    else {
-        if (-not $Quiet) {
-            Write-Host "PrintoCrypt was installed but did not start automatically. Open it from the Start Menu." -ForegroundColor Yellow
-        }
-    }
+    Start-PrintoCryptForLoggedOnUsers -ExePath $ExePath -InstallDir $InstallDir
 }
 
 try {
@@ -680,10 +985,12 @@ try {
     if (-not $PrinterOnly -and -not $SkipAppCopy) {
         $packageRoot = Resolve-PackageRoot
         $sourceAppDir = Resolve-SourceAppDir -Root $packageRoot
+        Ensure-PrintoCryptRuntime -AppDir $sourceAppDir
         Stop-PrintoCryptProcess
         Install-PrintoCryptApp -SourceDir $sourceAppDir -DestinationDir $InstallDir
     }
     elseif (-not $PrinterOnly) {
+        Ensure-PrintoCryptRuntime -AppDir $InstallDir
         Stop-PrintoCryptProcess
     }
 
@@ -691,7 +998,7 @@ try {
 
     if (-not $PrinterOnly) {
         Update-UserSettings -AppDataRoot (Get-InteractiveUserAppData)
-        Register-StartupForInteractiveUser -ExePath $exePath
+        Register-StartupForAllUsers -ExePath $exePath -InstallDir $InstallDir -Port $Port -PrinterName $PrinterName
 
         if (-not $SkipAppCopy) {
             Register-UninstallEntry -InstallDirectory $InstallDir -ExePath $exePath
@@ -699,7 +1006,7 @@ try {
         }
 
         if (-not $SkipLaunch) {
-            Start-PrintoCryptAsUser -ExePath $exePath
+            Start-PrintoCryptAsUser -ExePath $exePath -InstallDir $InstallDir
         }
 
         if (-not $Quiet) {
@@ -717,8 +1024,10 @@ try {
         Write-Ok $message
     }
 
-    if (-not $PrinterOnly) {
-        Send-PrintoCryptAnalytics -Action $AnalyticsAction -ExePath $exePath
+    if (-not $PrinterOnly -and $AnalyticsAction -in @("install", "update")) {
+        if (Get-Command Send-PrintoCryptAnalytics -ErrorAction SilentlyContinue) {
+            Send-PrintoCryptAnalytics -Action $AnalyticsAction -ExePath $exePath
+        }
     }
 
     Write-Result -Success $true -Message $message

@@ -12,8 +12,9 @@ namespace PrintoCrypt.App;
 public sealed class ApplicationHost
 {
     private readonly SettingsStore _settingsStore = new();
+    private readonly MachineSettingsStore _machineSettingsStore = new();
     private AppSettings _settings;
-    private PrintServer? _printServer;
+    private PrintJobPipeServer? _printJobPipeServer;
     private JobCoordinator? _jobCoordinator;
     private TrayIconService? _trayIcon;
     private MainWindow? _settingsWindow;
@@ -28,7 +29,8 @@ public sealed class ApplicationHost
     {
         _trayIcon = new TrayIconService(this);
         _jobCoordinator = CreateJobCoordinator(_settings);
-        StartPrintServer();
+        StartPrintJobPipeServer();
+        WarnIfBrokerIsNotRunning();
 
         if (_settings.StartWithWindows)
         {
@@ -38,8 +40,8 @@ public sealed class ApplicationHost
 
     public void Shutdown()
     {
-        _printServer?.Stop();
-        _printServer?.Dispose();
+        _printJobPipeServer?.Stop();
+        _printJobPipeServer?.Dispose();
         _trayIcon?.Dispose();
         Application.Current.Shutdown();
     }
@@ -54,7 +56,7 @@ public sealed class ApplicationHost
                 return;
             }
 
-            _settingsWindow = new MainWindow(_settings, SaveSettings, RestartPrintServer);
+            _settingsWindow = new MainWindow(_settings, SaveSettings, ApplyMachineSettings);
             _settingsWindow.Show();
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         });
@@ -77,25 +79,70 @@ public sealed class ApplicationHost
         EnsureStartupRegistration(settings.StartWithWindows);
     }
 
-    private void RestartPrintServer(AppSettings settings)
+    private void ApplyMachineSettings(AppSettings settings)
     {
         _settings = settings;
-        _printServer?.Stop();
-        _printServer?.Dispose();
-        _jobCoordinator = CreateJobCoordinator(settings);
-        StartPrintServer();
+        _settingsStore.Save(settings);
+        _machineSettingsStore.Save(new MachineSettings
+        {
+            ListenPort = settings.ListenPort,
+            PrinterName = settings.PrinterName
+        });
+        RestartBrokerProcess();
     }
 
-    private void StartPrintServer()
+    private static void RestartBrokerProcess()
     {
-        var spoolDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "PrintoCrypt",
-            "spool");
+        const string brokerTask = @"\PrintoCrypt\PrintoCrypt Broker";
 
-        _printServer = new PrintServer(_settings.ListenPort, spoolDir);
-        _printServer.JobReceived += OnJobReceived;
-        _printServer.Start();
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "schtasks.exe",
+                Arguments = $"/End /TN \"{brokerTask}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            })?.WaitForExit(3000);
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "schtasks.exe",
+                Arguments = $"/Run /TN \"{brokerTask}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            })?.WaitForExit(5000);
+        }
+        catch
+        {
+        }
+    }
+
+    private void StartPrintJobPipeServer()
+    {
+        _printJobPipeServer = new PrintJobPipeServer(Environment.UserName);
+        _printJobPipeServer.JobReceived += OnJobReceived;
+        _printJobPipeServer.Start();
+    }
+
+    private void WarnIfBrokerIsNotRunning()
+    {
+        var machineSettings = _machineSettingsStore.Load();
+        if (BrokerHealth.IsListeningOnLoopback(machineSettings.ListenPort))
+        {
+            return;
+        }
+
+        _trayIcon?.ShowBalloon(
+            L.Get("Notification_BrokerTitle"),
+            L.Get("Notification_BrokerNotRunning"),
+            Hardcodet.Wpf.TaskbarNotification.BalloonIcon.Warning);
     }
 
     private JobCoordinator CreateJobCoordinator(AppSettings settings)
@@ -187,19 +234,43 @@ public sealed class ApplicationHost
             return;
         }
 
-        using var key = Registry.CurrentUser.OpenSubKey(keyName, writable: true);
-        if (key is null)
-        {
-            return;
-        }
+        var quotedPath = BuildStartupCommand(exePath);
 
         if (enabled)
         {
-            key.SetValue(valueName, $"\"{exePath}\"");
+            SetRunValue(Registry.CurrentUser, keyName, valueName, quotedPath);
+
+            if (AdminHelper.IsRunningAsAdministrator())
+            {
+                DeleteRunValue(Registry.LocalMachine, keyName, valueName);
+            }
         }
         else
         {
-            key.DeleteValue(valueName, throwOnMissingValue: false);
+            DeleteRunValue(Registry.CurrentUser, keyName, valueName);
         }
+    }
+
+    private static void SetRunValue(RegistryKey root, string keyName, string valueName, string value)
+    {
+        using var key = root.OpenSubKey(keyName, writable: true);
+        key?.SetValue(valueName, value);
+    }
+
+    private static void DeleteRunValue(RegistryKey root, string keyName, string valueName)
+    {
+        using var key = root.OpenSubKey(keyName, writable: true);
+        key?.DeleteValue(valueName, throwOnMissingValue: false);
+    }
+
+    private static string BuildStartupCommand(string exePath)
+    {
+        var installDir = Path.GetDirectoryName(exePath);
+        if (string.IsNullOrWhiteSpace(installDir))
+        {
+            return $"\"{exePath}\"";
+        }
+
+        return $"powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"Start-Process -LiteralPath '{exePath.Replace("'", "''")}' -WorkingDirectory '{installDir.Replace("'", "''")}'\"";
     }
 }

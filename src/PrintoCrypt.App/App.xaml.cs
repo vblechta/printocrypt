@@ -4,17 +4,14 @@ namespace PrintoCrypt.App;
 
 public partial class App : Application
 {
-    private const string SingleInstanceMutexName = "PrintoCrypt_SingleInstance";
-
     private ApplicationHost? _host;
-    private Mutex? _singleInstanceMutex;
+    private Mutex? _instanceMutex;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         Localization.LocalizationSetup.ApplySystemLanguage();
 
-        _singleInstanceMutex = new Mutex(true, SingleInstanceMutexName, out var createdNew);
-        if (!createdNew)
+        if (!TryAcquireUserInstance())
         {
             Shutdown();
             return;
@@ -25,11 +22,30 @@ public partial class App : Application
         _host.Start();
     }
 
+    private bool TryAcquireUserInstance()
+    {
+        var mutexName = $@"Local\PrintoCrypt_{Environment.UserName}";
+        _instanceMutex = new Mutex(true, mutexName, out var createdNew);
+        return createdNew;
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         _host?.Shutdown();
-        _singleInstanceMutex?.ReleaseMutex();
-        _singleInstanceMutex?.Dispose();
+
+        if (_instanceMutex is not null)
+        {
+            try
+            {
+                _instanceMutex.ReleaseMutex();
+            }
+            catch
+            {
+            }
+
+            _instanceMutex.Dispose();
+        }
+
         base.OnExit(e);
     }
 }

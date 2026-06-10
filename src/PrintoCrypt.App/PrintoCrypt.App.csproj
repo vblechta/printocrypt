@@ -6,10 +6,12 @@
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <StartupObject>PrintoCrypt.App.Program</StartupObject>
     <RootNamespace>PrintoCrypt.App</RootNamespace>
     <AssemblyName>PrintoCrypt</AssemblyName>
     <Product>PrintoCrypt</Product>
     <Description>Virtual printer that saves encrypted PDFs</Description>
+    <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
 
   <ItemGroup>

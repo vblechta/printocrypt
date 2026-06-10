@@ -146,6 +146,12 @@ powershell -ExecutionPolicy Bypass -File "{2}" -Port {3}</value>
   <data name="Notification_PrintCancelled" xml:space="preserve">
     <value>Tisk zrušen</value>
   </data>
+  <data name="Notification_BrokerTitle" xml:space="preserve">
+    <value>PrintoCrypt</value>
+  </data>
+  <data name="Notification_BrokerNotRunning" xml:space="preserve">
+    <value>Tiskový broker neběží. Proveďte reinstalaci nebo spusťte naplánovanou úlohu PrintoCrypt Broker jako správce.</value>
+  </data>
   <data name="Notification_PrintFailed" xml:space="preserve">
     <value>Tisk se nezdařil</value>
   </data>

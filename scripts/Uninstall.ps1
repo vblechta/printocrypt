@@ -116,6 +116,18 @@ function Remove-PrintoCryptPrinter {
     }
 }
 
+function Remove-StartupRegistration {
+    $machineRunKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+    if (Test-Path $machineRunKey) {
+        Remove-ItemProperty -Path $machineRunKey -Name "PrintoCrypt" -ErrorAction SilentlyContinue
+    }
+
+    Unregister-ScheduledTask -TaskName "PrintoCrypt" -TaskPath "\PrintoCrypt\" -Confirm:$false -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName "PrintoCrypt Broker" -TaskPath "\PrintoCrypt\" -Confirm:$false -ErrorAction SilentlyContinue
+
+    Remove-StartupForInteractiveUser
+}
+
 function Remove-StartupForInteractiveUser {
     $userName = Get-InteractiveUser
     if (-not $userName) {
@@ -135,6 +147,13 @@ function Remove-Shortcuts {
     $programFolder = Join-Path ([Environment]::GetFolderPath("CommonPrograms")) "PrintoCrypt"
     if (Test-Path $programFolder) {
         Remove-Item -Path $programFolder -Recurse -Force
+    }
+}
+
+function Stop-PrintoCryptProcess {
+    Get-Process -Name "PrintoCrypt" -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Step "Stopping PrintoCrypt..."
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -184,9 +203,9 @@ function Remove-PrintoCryptApp {
 
     Write-Step "Removing PrintoCrypt from '$InstallDir'..."
 
-    Get-Process -Name "PrintoCrypt" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Stop-PrintoCryptProcess
 
-    Remove-StartupForInteractiveUser
+    Remove-StartupRegistration
     Remove-Shortcuts
 
     $uninstallKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintoCrypt"
@@ -223,6 +242,8 @@ try {
     if (-not $PrinterOnly) {
         Write-Step "Uninstalling PrintoCrypt..."
     }
+
+    Stop-PrintoCryptProcess
 
     $exePath = Join-Path $InstallDir "PrintoCrypt.exe"
     $installedVersion = Get-InstalledPrintoCryptVersionForUninstall -InstallDir $InstallDir -ExePath $exePath
