@@ -80,8 +80,10 @@ function ShouldProceedWithSilentInstall(): Boolean;
 var
   InstalledVersion: String;
   CompareResult: Integer;
+  InstallerVersion: String;
 begin
   Result := True;
+  InstallerVersion := '{#MyAppVersion}';
 
   if not WizardSilent then
     Exit;
@@ -92,16 +94,14 @@ begin
     Exit;
   end;
 
-  CompareResult := CompareVersion(InstalledVersion, '{#MyAppVersion}');
+  CompareResult := CompareVersion(InstalledVersion, InstallerVersion);
   if CompareResult >= 0 then
   begin
-    Log(Format('Silent install: installed version %s is current (installer version %s). Nothing to do.',
-      [InstalledVersion, '{#MyAppVersion}']));
+    Log(Format('Silent install: installed version %s is current (installer version %s). Nothing to do.', [InstalledVersion, InstallerVersion]));
     ExitProcess(0);
   end;
 
-  Log(Format('Silent install: installed version %s is older than %s. Proceeding with upgrade.',
-    [InstalledVersion, '{#MyAppVersion}']));
+  Log(Format('Silent install: installed version %s is older than %s. Proceeding with upgrade.', [InstalledVersion, InstallerVersion]));
 end;
 
 function InitializeSetup(): Boolean;
