@@ -27,6 +27,9 @@ jobs:
       - name: Publish
         run: dotnet publish src/PrintoCrypt.App/PrintoCrypt.App.csproj -c Release -r win-x64 --self-contained false -o artifacts/PrintoCrypt
 
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
       - name: Build installer package
         run: powershell -ExecutionPolicy Bypass -File scripts/Build-Installer.ps1 -OutputDir artifacts/PrintoCrypt-Setup
 
@@ -37,3 +40,4 @@ jobs:
           path: |
             artifacts/PrintoCrypt-Setup
             artifacts/PrintoCrypt-Setup.zip
+            artifacts/PrintoCrypt-Setup.exe

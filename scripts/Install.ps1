@@ -6,6 +6,8 @@ param(
     [string]$HostAddress = "127.0.0.1",
     [switch]$PrinterOnly,
     [switch]$SkipLaunch,
+    [switch]$SkipAppCopy,
+    [switch]$Quiet,
     [string]$ResultFile = ""
 )
 
@@ -47,11 +49,15 @@ if (-not (Test-IsAdministrator)) {
 }
 
 function Write-Step([string]$Message) {
-    Write-Host $Message -ForegroundColor Cyan
+    if (-not $Quiet) {
+        Write-Host $Message -ForegroundColor Cyan
+    }
 }
 
 function Write-Ok([string]$Message) {
-    Write-Host $Message -ForegroundColor Green
+    if (-not $Quiet) {
+        Write-Host $Message -ForegroundColor Green
+    }
 }
 
 function Write-Result {
@@ -73,11 +79,13 @@ function Write-Result {
 function Show-InstallFailure {
     param([string]$Message)
 
-    Write-Host ""
-    Write-Host "Installation failed: $Message" -ForegroundColor Red
+    if (-not $Quiet) {
+        Write-Host ""
+        Write-Host "Installation failed: $Message" -ForegroundColor Red
 
-    if ([string]::IsNullOrWhiteSpace($ResultFile) -and [Environment]::UserInteractive) {
-        Read-Host "Press Enter to close"
+        if ([string]::IsNullOrWhiteSpace($ResultFile) -and [Environment]::UserInteractive) {
+            Read-Host "Press Enter to close"
+        }
     }
 }
 
@@ -469,7 +477,9 @@ function Start-PrintoCryptAsUser {
 
     $currentUser = Get-InteractiveUser
     if (-not $currentUser) {
-        Write-Host "PrintoCrypt was installed but could not be started automatically. Open it from the Start Menu." -ForegroundColor Yellow
+        if (-not $Quiet) {
+            Write-Host "PrintoCrypt was installed but could not be started automatically. Open it from the Start Menu." -ForegroundColor Yellow
+        }
         return
     }
 
@@ -479,8 +489,10 @@ function Start-PrintoCryptAsUser {
     $startTime = (Get-Date).AddMinutes(1).ToString("HH:mm")
     $createOutput = schtasks /Create /TN $taskName /TR "`"$ExePath`"" /SC ONCE /ST $startTime /SD (Get-Date -Format "MM/dd/yyyy") /RU $currentUser /RL LIMITED /IT /F 2>&1
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "Could not create launch task: $createOutput" -ForegroundColor Yellow
-        Write-Host "Open PrintoCrypt from the Start Menu to start the tray app." -ForegroundColor Yellow
+        if (-not $Quiet) {
+            Write-Host "Could not create launch task: $createOutput" -ForegroundColor Yellow
+            Write-Host "Open PrintoCrypt from the Start Menu to start the tray app." -ForegroundColor Yellow
+        }
         return
     }
 
@@ -492,25 +504,30 @@ function Start-PrintoCryptAsUser {
         Write-Ok "PrintoCrypt is running in the system tray."
     }
     else {
-        Write-Host "PrintoCrypt was installed but did not start automatically. Open it from the Start Menu." -ForegroundColor Yellow
+        if (-not $Quiet) {
+            Write-Host "PrintoCrypt was installed but did not start automatically. Open it from the Start Menu." -ForegroundColor Yellow
+        }
     }
 }
 
 try {
-    if (-not $PrinterOnly) {
+    if (-not $PrinterOnly -and -not $Quiet) {
         Write-Host ""
         Write-Host "PrintoCrypt installer" -ForegroundColor White
         Write-Host "=====================" -ForegroundColor White
         Write-Host ""
     }
 
-    $packageRoot = Resolve-PackageRoot
     $exePath = Join-Path $InstallDir "PrintoCrypt.exe"
 
-    if (-not $PrinterOnly) {
+    if (-not $PrinterOnly -and -not $SkipAppCopy) {
+        $packageRoot = Resolve-PackageRoot
         $sourceAppDir = Resolve-SourceAppDir -Root $packageRoot
         Stop-PrintoCryptProcess
         Install-PrintoCryptApp -SourceDir $sourceAppDir -DestinationDir $InstallDir
+    }
+    elseif (-not $PrinterOnly) {
+        Stop-PrintoCryptProcess
     }
 
     Install-PrintoCryptPrinter
@@ -518,18 +535,24 @@ try {
     if (-not $PrinterOnly) {
         Update-UserSettings -AppDataRoot (Get-InteractiveUserAppData)
         Register-StartupForInteractiveUser -ExePath $exePath
-        Register-UninstallEntry -InstallDirectory $InstallDir -ExePath $exePath
-        New-Shortcuts -ExePath $exePath -InstallDirectory $InstallDir
+
+        if (-not $SkipAppCopy) {
+            Register-UninstallEntry -InstallDirectory $InstallDir -ExePath $exePath
+            New-Shortcuts -ExePath $exePath -InstallDirectory $InstallDir
+        }
 
         if (-not $SkipLaunch) {
             Start-PrintoCryptAsUser -ExePath $exePath
         }
 
-        Write-Host ""
-        Write-Ok "PrintoCrypt installed successfully."
-        Write-Host "Installed to: $InstallDir"
-        Write-Host "Print from any app using the '$PrinterName' printer."
-        Write-Host ""
+        if (-not $Quiet) {
+            Write-Host ""
+            Write-Ok "PrintoCrypt installed successfully."
+            Write-Host "Installed to: $InstallDir"
+            Write-Host "Print from any app using the '$PrinterName' printer."
+            Write-Host ""
+        }
+
         $message = "PrintoCrypt installed successfully."
     }
     else {

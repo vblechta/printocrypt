@@ -2,7 +2,8 @@
 param(
     [string]$OutputDir = (Join-Path $PSScriptRoot "..\artifacts\PrintoCrypt-Setup"),
     [string]$Configuration = "Release",
-    [string]$Runtime = "win-x64"
+    [string]$Runtime = "win-x64",
+    [switch]$SkipInno
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,6 +12,12 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $solutionPath = Join-Path $repoRoot "PrintoCrypt.sln"
 $projectPath = Join-Path $repoRoot "src\PrintoCrypt.App\PrintoCrypt.App.csproj"
 $appOutputDir = Join-Path $OutputDir "app"
+$issPath = Join-Path $repoRoot "installer\PrintoCrypt.iss"
+
+function Get-AppVersion {
+    [xml]$project = Get-Content $projectPath
+    return [string]$project.Project.PropertyGroup.Version
+}
 
 Write-Host "Building PrintoCrypt..." -ForegroundColor Cyan
 
@@ -59,9 +66,76 @@ if ($LASTEXITCODE -eq 2) {
     Write-Host "Run this before release: powershell -ExecutionPolicy Bypass -File scripts\Test-InstallPrinterPort.ps1" -ForegroundColor Yellow
 }
 
+function Find-InnoSetupCompiler {
+    $candidates = @(
+        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+        "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+        (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe")
+    )
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    $uninstallRoots = @(
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+
+    foreach ($root in $uninstallRoots) {
+        $installLocation = Get-ItemProperty $root -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -like "Inno Setup*" -and $_.InstallLocation } |
+            Select-Object -ExpandProperty InstallLocation -First 1
+
+        if ($installLocation) {
+            foreach ($relativePath in @("ISCC.exe", "bin\ISCC.exe")) {
+                $candidate = Join-Path $installLocation $relativePath
+                if (Test-Path $candidate) {
+                    return $candidate
+                }
+            }
+        }
+    }
+
+    return $null
+}
+
+$appVersion = Get-AppVersion
+$guiInstallerPath = Join-Path (Split-Path $OutputDir -Parent) "PrintoCrypt-Setup.exe"
+
+if (-not $SkipInno) {
+    $iscc = Find-InnoSetupCompiler
+
+    if ($iscc) {
+        Write-Host ""
+        Write-Host "Building GUI installer..." -ForegroundColor Cyan
+        & $iscc "/DMyAppVersion=$appVersion" $issPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup compilation failed."
+        }
+    }
+    else {
+        Write-Host ""
+        Write-Host "Inno Setup 6 was not found. Install it to build PrintoCrypt-Setup.exe:" -ForegroundColor Yellow
+        Write-Host "  winget install --id JRSoftware.InnoSetup --source winget" -ForegroundColor Yellow
+        Write-Host "  https://jrsoftware.org/isdl.php" -ForegroundColor Yellow
+    }
+}
+
 Write-Host ""
 Write-Host "Setup package created:" -ForegroundColor Green
 Write-Host "  Folder: $OutputDir"
 Write-Host "  Zip:    $zipPath"
-Write-Host ""
-Write-Host "Run Install.cmd as administrator to install everything." -ForegroundColor Yellow
+if (Test-Path $guiInstallerPath) {
+    Write-Host "  GUI:    $guiInstallerPath"
+    Write-Host ""
+    Write-Host "Quiet install examples:" -ForegroundColor Yellow
+    Write-Host "  PrintoCrypt-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+    Write-Host "  PrintoCrypt-Setup.exe /SILENT"
+}
+else {
+    Write-Host ""
+    Write-Host "Run Install.cmd as administrator to install from the zip/folder package." -ForegroundColor Yellow
+}

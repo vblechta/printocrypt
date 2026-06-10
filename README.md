@@ -42,9 +42,49 @@ Build a setup package:
 powershell -ExecutionPolicy Bypass -File scripts/Build-Installer.ps1
 ```
 
-This creates `artifacts/PrintoCrypt-Setup/` and `artifacts/PrintoCrypt-Setup.zip`.
+This creates:
+
+- `artifacts/PrintoCrypt-Setup/` — portable setup folder
+- `artifacts/PrintoCrypt-Setup.zip` — same content as a zip
+- `artifacts/PrintoCrypt-Setup.exe` — GUI installer (requires [Inno Setup 6](https://jrsoftware.org/isinfo.php))
+
+Build the GUI installer locally:
+
+```powershell
+winget install --id JRSoftware.InnoSetup --source winget
+```
+
+If `winget` fails on the Microsoft Store source (`msstore` certificate error), always pass `--source winget` as above, or download Inno Setup from https://jrsoftware.org/isdl.php .
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/Build-Installer.ps1
+```
 
 ## Install
+
+### GUI installer (recommended)
+
+Run **`PrintoCrypt-Setup.exe`** and follow the wizard.
+
+Quiet/unattended install:
+
+```powershell
+PrintoCrypt-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+```
+
+Progress-only install (no wizard pages):
+
+```powershell
+PrintoCrypt-Setup.exe /SILENT
+```
+
+Optional custom folder:
+
+```powershell
+PrintoCrypt-Setup.exe /VERYSILENT /DIR="C:\Tools\PrintoCrypt"
+```
+
+### Portable setup folder
 
 Double-click **`Install.cmd`** in the setup folder (approves UAC once).
 
@@ -52,6 +92,12 @@ Or run as administrator:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File Install.ps1
+```
+
+Quiet install from PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Install.ps1 -Quiet
 ```
 
 The installer:
@@ -98,9 +144,11 @@ src/
   PrintoCrypt.Core/     PDF encryption, settings, job processing
   PrintoCrypt.App/      WPF tray app, XPS-to-PDF conversion, TCP print server
 scripts/
-  Build-Installer.ps1   Create setup zip
+  Build-Installer.ps1   Create setup zip and GUI installer
   Install.ps1           Install app, printer, and launch
   Uninstall.ps1         Remove everything
+installer/
+  PrintoCrypt.iss       Inno Setup GUI installer script
 Install.cmd             Double-click installer (requests admin)
 Uninstall.cmd           Double-click uninstaller (requests admin)
 ```
