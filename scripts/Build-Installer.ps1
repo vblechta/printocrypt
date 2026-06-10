@@ -15,6 +15,15 @@ $appOutputDir = Join-Path $OutputDir "app"
 $issPath = Join-Path $repoRoot "installer\PrintoCrypt.iss"
 
 function Get-AppVersion {
+    $propsPath = Join-Path $repoRoot "Directory.Build.props"
+    if (Test-Path $propsPath) {
+        [xml]$props = Get-Content $propsPath
+        $version = [string]$props.Project.PropertyGroup.Version
+        if ($version) {
+            return $version
+        }
+    }
+
     [xml]$project = Get-Content $projectPath
     return [string]$project.Project.PropertyGroup.Version
 }

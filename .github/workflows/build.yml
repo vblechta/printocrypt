@@ -24,9 +24,6 @@ jobs:
       - name: Build
         run: dotnet build PrintoCrypt.sln -c Release --no-restore
 
-      - name: Publish
-        run: dotnet publish src/PrintoCrypt.App/PrintoCrypt.App.csproj -c Release -r win-x64 --self-contained false -o artifacts/PrintoCrypt
-
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 

@@ -52,12 +52,23 @@ Build the GUI installer locally:
 
 ```powershell
 winget install --id JRSoftware.InnoSetup --source winget
+powershell -ExecutionPolicy Bypass -File scripts/Build-Installer.ps1
 ```
 
 If `winget` fails on the Microsoft Store source (`msstore` certificate error), always pass `--source winget` as above, or download Inno Setup from https://jrsoftware.org/isdl.php .
 
+Version is read from `Directory.Build.props`.
+
+### Silent install behavior
+
+| Situation | `/VERYSILENT` result |
+|-----------|----------------------|
+| Not installed | Installs normally |
+| Installed, older version | Upgrades in place |
+| Installed, same or newer version | Exits immediately (exit code 0), no changes |
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/Build-Installer.ps1
+PrintoCrypt-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
 ```
 
 ## Install
@@ -65,12 +76,6 @@ powershell -ExecutionPolicy Bypass -File scripts/Build-Installer.ps1
 ### GUI installer (recommended)
 
 Run **`PrintoCrypt-Setup.exe`** and follow the wizard.
-
-Quiet/unattended install:
-
-```powershell
-PrintoCrypt-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-```
 
 Progress-only install (no wizard pages):
 
@@ -151,6 +156,7 @@ installer/
   PrintoCrypt.iss       Inno Setup GUI installer script
 Install.cmd             Double-click installer (requests admin)
 Uninstall.cmd           Double-click uninstaller (requests admin)
+Directory.Build.props   Shared product version
 ```
 
 ## License

@@ -6,11 +6,14 @@
 #define MyAppPublisher "PrintoCrypt"
 #define MyAppExeName "PrintoCrypt.exe"
 #define MyAppUrl "https://github.com/printocrypt/printocrypt"
+#define MyAppId "{{8F4E2A61-9C3D-4B15-9E7A-1D2F8C6B4A90}"
+#define UninstallRegKey "{#MyAppId}_is1"
 
 [Setup]
-AppId={{8F4E2A61-9C3D-4B15-9E7A-1D2F8C6B4A90}
+AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppSupportURL={#MyAppUrl}
 AppUpdatesURL={#MyAppUrl}
@@ -26,6 +29,11 @@ WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupLogging=yes
+CloseApplications=yes
+CloseApplicationsFilter={#MyAppExeName}
+AppMutex=PrintoCrypt_SingleInstance
+RestartApplications=no
+UsePreviousAppDir=yes
 MinVersion=10.0
 
 [Languages]
@@ -55,7 +63,48 @@ Filename: "powershell.exe"; \
   Flags: runhidden waituntilterminated
 
 [Code]
-function InitializeSetup(): Boolean;
+function ExitProcess(uExitCode: UINT): BOOL;
+  external 'ExitProcess@kernel32.dll stdcall';
+
+function GetInstalledVersion(var Version: String): Boolean;
+begin
+  Result := False;
+  Version := '';
+  if RegQueryStringValue(HKLM, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#UninstallRegKey}', 'DisplayVersion', Version) then
+    Result := True
+  else if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#UninstallRegKey}', 'DisplayVersion', Version) then
+    Result := True;
+end;
+
+function ShouldProceedWithSilentInstall(): Boolean;
+var
+  InstalledVersion: String;
+  CompareResult: Integer;
 begin
   Result := True;
+
+  if not WizardSilent then
+    Exit;
+
+  if not GetInstalledVersion(InstalledVersion) then
+  begin
+    Log('Silent install: PrintoCrypt is not installed. Proceeding with installation.');
+    Exit;
+  end;
+
+  CompareResult := CompareVersion(InstalledVersion, '{#MyAppVersion}');
+  if CompareResult >= 0 then
+  begin
+    Log(Format('Silent install: installed version %s is current (installer version %s). Nothing to do.',
+      [InstalledVersion, '{#MyAppVersion}']));
+    ExitProcess(0);
+  end;
+
+  Log(Format('Silent install: installed version %s is older than %s. Proceeding with upgrade.',
+    [InstalledVersion, '{#MyAppVersion}']));
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  Result := ShouldProceedWithSilentInstall();
 end;
