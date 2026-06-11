@@ -21,7 +21,7 @@ flowchart LR
 6. **Outlook** opens a new email draft with the PDF attached (if installed).
 
 ### Telemetry data
-App send very limited, anonymized telemetry data for usage statistics.
+App sends very limited, anonymized telemetry data for usage statistics.
 Sent data are:
 - timestamp
 - public IP
