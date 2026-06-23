@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.1"
+  #define MyAppVersion "1.0.2"
 #endif
 
 #define MyAppName "PrintoCrypt"
@@ -21,6 +21,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 OutputDir=..\artifacts
 OutputBaseFilename=PrintoCrypt-Setup
+SetupIconFile=..\src\PrintoCrypt.App\Assets\printocrypt.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

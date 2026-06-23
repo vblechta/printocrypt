@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.0.2] - 2026-06-23
+
+### Added
+
+- Custom app icon for the executable, tray, dialogs, and installer.
+- Version label in the print and settings dialogs; clicking the version in settings opens the changelog.
+
 ## [1.0.1] - 2026-06-22
 
 ### Added

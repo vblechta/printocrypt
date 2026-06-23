@@ -11,6 +11,7 @@
     <AssemblyName>PrintoCrypt</AssemblyName>
     <Product>PrintoCrypt</Product>
     <Description>Virtual printer that saves encrypted PDFs</Description>
+    <ApplicationIcon>Assets\printocrypt.ico</ApplicationIcon>
     <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
 
@@ -33,6 +34,11 @@
 
   <ItemGroup>
     <Using Include="System.IO" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\printocrypt.ico" />
+    <Content Include="Assets\printocrypt-icon.png" />
   </ItemGroup>
 
   <ItemGroup>

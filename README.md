@@ -2,7 +2,7 @@
 
 Virtual Windows printer that saves every print job as a **password-protected PDF**. When you print, PrintoCrypt prompts for a password before writing the file.
 
-**Current version:** 1.0.1 — see [CHANGELOG.md](CHANGELOG.md) for release notes.
+**Current version:** 1.0.2 — see [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## How it works
 

@@ -9,14 +9,16 @@ public sealed class TrayIconService : IDisposable
 {
     private readonly TaskbarIcon _icon;
     private readonly ApplicationHost _host;
+    private readonly System.Drawing.Icon _trayIcon;
 
     public TrayIconService(ApplicationHost host)
     {
         _host = host;
+        _trayIcon = AppIcon.GetTrayIcon();
         _icon = new TaskbarIcon
         {
             ToolTipText = L.Get("TrayTooltip"),
-            Icon = System.Drawing.SystemIcons.Shield
+            Icon = _trayIcon
         };
 
         _icon.TrayMouseDoubleClick += (_, _) => _host.ShowSettings();
@@ -60,5 +62,6 @@ public sealed class TrayIconService : IDisposable
     public void Dispose()
     {
         _icon.Dispose();
+        _trayIcon.Dispose();
     }
 }
