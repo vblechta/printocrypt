@@ -1,6 +1,8 @@
-using System.Threading;
-using System.Windows;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting.WindowsServices;
 using PrintoCrypt.App.Services;
+using System.Windows;
 
 namespace PrintoCrypt.App;
 
@@ -11,7 +13,19 @@ public static class Program
     {
         if (args.Any(arg => string.Equals(arg, "--broker", StringComparison.OrdinalIgnoreCase)))
         {
-            BrokerProgram.Run();
+            if (OperatingSystem.IsWindows() && WindowsServiceHelpers.IsWindowsService())
+            {
+                Host.CreateDefaultBuilder(args)
+                    .UseWindowsService(options => options.ServiceName = BrokerServiceControl.ServiceName)
+                    .ConfigureServices(services => services.AddHostedService<PrintoCryptBrokerService>())
+                    .Build()
+                    .Run();
+            }
+            else
+            {
+                BrokerProgram.Run();
+            }
+
             return;
         }
 

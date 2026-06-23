@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "1.0.1"
 #endif
 
 #define MyAppName "PrintoCrypt"
@@ -44,6 +44,7 @@ Source: "..\artifacts\PrintoCrypt-Setup\Install.ps1"; DestDir: "{app}"; Flags: i
 Source: "..\artifacts\PrintoCrypt-Setup\Uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\artifacts\PrintoCrypt-Setup\PrintoCrypt-Spooler.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\artifacts\PrintoCrypt-Setup\PrintoCrypt-Analytics.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\artifacts\PrintoCrypt-Setup\PrintoCrypt-UserLaunch.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
@@ -215,16 +216,35 @@ procedure StopRunningPrintoCrypt;
 var
   ResultCode: Integer;
 begin
-  Exec('taskkill.exe', '/F /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  { Avoid sc.exe "file not found" noise when the service/task never existed. }
+  Exec('powershell.exe',
+    '-NoProfile -ExecutionPolicy Bypass -Command "' +
+    'Stop-Service -Name PrintoCryptBroker -Force -ErrorAction SilentlyContinue; ' +
+    'Stop-Process -Name {#MyAppExeName} -Force -ErrorAction SilentlyContinue"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 function GetInstallPs1Params(Param: String): String;
+var
+  SkipLaunchFlag: String;
+  ResultFilePath: String;
 begin
+  if WizardSilent then
+    SkipLaunchFlag := ' -SkipLaunch'
+  else
+    SkipLaunchFlag := '';
+
+  ResultFilePath := ExpandConstant('{commonappdata}') + '\PrintoCrypt\install-result.json';
+
   Result :=
     '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' +
     ExpandConstant('{app}\Install.ps1') +
     '" -InstallDir "' + ExpandConstant('{app}') +
-    '" -SkipAppCopy -Quiet -AnalyticsAction ' + AnalyticsAction;
+    '" -SkipAppCopy -Quiet -AnalyticsAction ' + AnalyticsAction +
+    SkipLaunchFlag +
+    ' -ResultFile "' + ResultFilePath + '"';
+
+  Log('Install.ps1 params: ' + Result);
 end;
 
 function InitializeSetup: Boolean;

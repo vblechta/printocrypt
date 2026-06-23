@@ -117,13 +117,23 @@ function Remove-PrintoCryptPrinter {
 }
 
 function Remove-StartupRegistration {
+    Stop-Service -Name "PrintoCryptBroker" -Force -ErrorAction SilentlyContinue
+    & sc.exe stop PrintoCryptBroker 2>$null | Out-Null
+    & sc.exe delete PrintoCryptBroker 2>$null | Out-Null
+
     $machineRunKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
     if (Test-Path $machineRunKey) {
         Remove-ItemProperty -Path $machineRunKey -Name "PrintoCrypt" -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path $machineRunKey -Name "PrintoCrypt Broker" -ErrorAction SilentlyContinue
     }
 
+    schtasks /Delete /TN "\PrintoCrypt\PrintoCrypt Broker" /F 2>$null | Out-Null
+    schtasks /Delete /TN "\PrintoCrypt\PrintoCrypt" /F 2>$null | Out-Null
     Unregister-ScheduledTask -TaskName "PrintoCrypt" -TaskPath "\PrintoCrypt\" -Confirm:$false -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName "PrintoCrypt Broker" -TaskPath "\PrintoCrypt\" -Confirm:$false -ErrorAction SilentlyContinue
+
+    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\{8F4E2A61-9C3D-4B15-9E7A-1D2F8C6B4A90}" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "HKLM:\SOFTWARE\PrintoCrypt" -Recurse -Force -ErrorAction SilentlyContinue
 
     Remove-StartupForInteractiveUser
 }

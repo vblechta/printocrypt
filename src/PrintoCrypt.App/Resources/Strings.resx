@@ -125,6 +125,9 @@ powershell -ExecutionPolicy Bypass -File "{2}" -Port {3}</value>
   <data name="TrayTooltip" xml:space="preserve">
     <value>PrintoCrypt – encrypted PDF printer</value>
   </data>
+  <data name="TrayTooltipLoading" xml:space="preserve">
+    <value>PrintoCrypt – starting…</value>
+  </data>
   <data name="TraySettings" xml:space="preserve">
     <value>Settings</value>
   </data>
@@ -150,7 +153,16 @@ powershell -ExecutionPolicy Bypass -File "{2}" -Port {3}</value>
     <value>PrintoCrypt</value>
   </data>
   <data name="Notification_BrokerNotRunning" xml:space="preserve">
-    <value>The print broker is not running. Reinstall or run the PrintoCrypt Broker scheduled task as administrator.</value>
+    <value>The print broker service is not running. Restart the PrintoCrypt Broker service or reinstall PrintoCrypt.</value>
+  </data>
+  <data name="Notification_StartingPrint" xml:space="preserve">
+    <value>PrintoCrypt is starting. Your print job will open shortly.</value>
+  </data>
+  <data name="Startup_LoadingMessage" xml:space="preserve">
+    <value>PrintoCrypt is starting. Your print job will open shortly.</value>
+  </data>
+  <data name="Startup_PreparingPrint" xml:space="preserve">
+    <value>Preparing your print job…</value>
   </data>
   <data name="Notification_PrintFailed" xml:space="preserve">
     <value>Print failed</value>
@@ -217,5 +229,17 @@ powershell -ExecutionPolicy Bypass -File "{2}" -Port {3}</value>
   </data>
   <data name="SelectEmailTemplate" xml:space="preserve">
     <value>Select an email template.</value>
+  </data>
+  <data name="AppVersion" xml:space="preserve">
+    <value>Version {0}</value>
+  </data>
+  <data name="Changelog_Title" xml:space="preserve">
+    <value>What's new</value>
+  </data>
+  <data name="Changelog_NotFound" xml:space="preserve">
+    <value>Changelog file was not found in the installation folder.</value>
+  </data>
+  <data name="Changelog_OpenTooltip" xml:space="preserve">
+    <value>View changelog</value>
   </data>
 </root>

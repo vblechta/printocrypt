@@ -67,11 +67,26 @@ public sealed class BrokerHost : IDisposable
                 ReceivedAt = job.ReceivedAt
             };
 
-            if (!await PrintJobPipeClient.SendJobAsync(routedJob, targetUser))
+            if (await PrintJobPipeClient.SendJobAsync(routedJob, targetUser))
             {
                 TryDelete(job.SourcePath);
-                TryDelete(destinationPath);
+                return;
             }
+
+            UserAppLauncher.TryLaunchForUser(targetUser);
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+
+            if (await PrintJobPipeClient.SendJobAsync(
+                    routedJob,
+                    targetUser,
+                    attemptCount: 20,
+                    connectTimeoutMs: 2000))
+            {
+                TryDelete(job.SourcePath);
+                return;
+            }
+
+            // Leave the spool file in place; the user app may still pick it up after startup.
         }
         catch
         {

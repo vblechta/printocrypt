@@ -22,6 +22,11 @@ function Get-PrintoCryptVersionFromExe {
         return "unknown"
     }
 
+    $plusIndex = $version.IndexOf('+')
+    if ($plusIndex -ge 0) {
+        $version = $version.Substring(0, $plusIndex)
+    }
+
     return $version
 }
 

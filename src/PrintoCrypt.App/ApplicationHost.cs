@@ -13,29 +13,19 @@ public sealed class ApplicationHost
 {
     private readonly SettingsStore _settingsStore = new();
     private readonly MachineSettingsStore _machineSettingsStore = new();
-    private AppSettings _settings;
+    private AppSettings? _settings;
     private PrintJobPipeServer? _printJobPipeServer;
+    private readonly Queue<PrintJobInfo> _pendingJobs = new();
+    private readonly object _pendingJobsLock = new();
+    private volatile bool _isReady;
     private JobCoordinator? _jobCoordinator;
     private TrayIconService? _trayIcon;
     private MainWindow? _settingsWindow;
 
-    public ApplicationHost()
-    {
-        _settings = _settingsStore.Load();
-        Directory.CreateDirectory(_settings.OutputDirectory);
-    }
-
     public void Start()
     {
-        _trayIcon = new TrayIconService(this);
-        _jobCoordinator = CreateJobCoordinator(_settings);
         StartPrintJobPipeServer();
-        WarnIfBrokerIsNotRunning();
-
-        if (_settings.StartWithWindows)
-        {
-            EnsureStartupRegistration(true);
-        }
+        StartBackgroundInitialization();
     }
 
     public void Shutdown()
@@ -50,13 +40,15 @@ public sealed class ApplicationHost
     {
         Application.Current.Dispatcher.Invoke(() =>
         {
+            var settings = EnsureSettings();
+
             if (_settingsWindow is { IsVisible: true })
             {
                 _settingsWindow.Activate();
                 return;
             }
 
-            _settingsWindow = new MainWindow(_settings, SaveSettings, ApplyMachineSettings);
+            _settingsWindow = new MainWindow(settings, SaveSettings, ApplyMachineSettings);
             _settingsWindow.Show();
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         });
@@ -64,13 +56,16 @@ public sealed class ApplicationHost
 
     public void OpenOutputFolder()
     {
-        Directory.CreateDirectory(_settings.OutputDirectory);
+        var settings = EnsureSettings();
+        Directory.CreateDirectory(settings.OutputDirectory);
         Process.Start(new ProcessStartInfo
         {
-            FileName = _settings.OutputDirectory,
+            FileName = settings.OutputDirectory,
             UseShellExecute = true
         });
     }
+
+    private AppSettings EnsureSettings() => _settings ??= _settingsStore.Load();
 
     private void SaveSettings(AppSettings settings)
     {
@@ -93,35 +88,115 @@ public sealed class ApplicationHost
 
     private static void RestartBrokerProcess()
     {
-        const string brokerTask = @"\PrintoCrypt\PrintoCrypt Broker";
+        if (BrokerServiceControl.IsInstalled())
+        {
+            BrokerServiceControl.Restart();
+            return;
+        }
 
+        StartBrokerProcessFallback();
+    }
+
+    private static void StartBrokerProcessFallback()
+    {
         try
         {
+            var exePath = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(exePath))
+            {
+                return;
+            }
+
+            var installDir = Path.GetDirectoryName(exePath);
+            if (string.IsNullOrWhiteSpace(installDir))
+            {
+                return;
+            }
+
             Process.Start(new ProcessStartInfo
             {
-                FileName = "schtasks.exe",
-                Arguments = $"/End /TN \"{brokerTask}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            })?.WaitForExit(3000);
+                FileName = exePath,
+                Arguments = "--broker",
+                WorkingDirectory = installDir,
+                UseShellExecute = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            });
         }
         catch
         {
         }
+    }
 
-        try
+    private void EnsureBrokerRunning()
+    {
+        var machineSettings = _machineSettingsStore.Load();
+        if (BrokerHealth.IsListeningOnLoopback(machineSettings.ListenPort))
         {
-            Process.Start(new ProcessStartInfo
+            return;
+        }
+
+        if (BrokerServiceControl.IsInstalled())
+        {
+            BrokerServiceControl.EnsureRunning();
+            return;
+        }
+
+        StartBrokerProcessFallback();
+    }
+
+    private void StartBackgroundInitialization()
+    {
+        Task.Run(() =>
+        {
+            var settings = _settingsStore.Load();
+            Directory.CreateDirectory(settings.OutputDirectory);
+
+            var coordinator = CreateJobCoordinator(settings);
+            EnsureBrokerRunning();
+
+            if (settings.StartWithWindows)
             {
-                FileName = "schtasks.exe",
-                Arguments = $"/Run /TN \"{brokerTask}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            })?.WaitForExit(5000);
-        }
-        catch
+                EnsureStartupRegistration(true);
+            }
+
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                _settings = settings;
+                _jobCoordinator = coordinator;
+                _isReady = true;
+                _trayIcon = new TrayIconService(this);
+                WarnIfBrokerIsNotRunning();
+                DrainPendingJobs();
+            });
+        });
+    }
+
+    private void DrainPendingJobs()
+    {
+        List<PrintJobInfo> jobs;
+        lock (_pendingJobsLock)
         {
+            jobs = _pendingJobs.ToList();
+            _pendingJobs.Clear();
         }
+
+        foreach (var job in jobs)
+        {
+            EnqueueJobProcessing(job);
+        }
+    }
+
+    private void EnqueueJobProcessing(PrintJobInfo job)
+    {
+        Application.Current.Dispatcher.InvokeAsync(async () =>
+        {
+            if (_jobCoordinator is null)
+            {
+                return;
+            }
+
+            await _jobCoordinator.HandleJobAsync(job, RequestPasswordAsync);
+        });
     }
 
     private void StartPrintJobPipeServer()
@@ -183,14 +258,19 @@ public sealed class ApplicationHost
 
     private void OnJobReceived(object? sender, PrintJobInfo job)
     {
-        Application.Current.Dispatcher.InvokeAsync(async () =>
+        Application.Current.Dispatcher.InvokeAsync(() =>
         {
-            if (_jobCoordinator is null)
+            if (!_isReady || _jobCoordinator is null)
             {
+                lock (_pendingJobsLock)
+                {
+                    _pendingJobs.Enqueue(job);
+                }
+
                 return;
             }
 
-            await _jobCoordinator.HandleJobAsync(job, RequestPasswordAsync);
+            EnqueueJobProcessing(job);
         });
     }
 
@@ -200,7 +280,7 @@ public sealed class ApplicationHost
 
         Application.Current.Dispatcher.Invoke(() =>
         {
-            var dialog = new PasswordDialog(job, _settings)
+            var dialog = new PasswordDialog(job, EnsureSettings())
             {
                 Owner = _settingsWindow?.IsVisible == true ? _settingsWindow : null
             };
@@ -269,6 +349,12 @@ public sealed class ApplicationHost
         if (string.IsNullOrWhiteSpace(installDir))
         {
             return $"\"{exePath}\"";
+        }
+
+        var launcher = Path.Combine(installDir, "PrintoCrypt-UserLaunch.cmd");
+        if (File.Exists(launcher))
+        {
+            return $"\"{launcher}\"";
         }
 
         return $"powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"Start-Process -LiteralPath '{exePath.Replace("'", "''")}' -WorkingDirectory '{installDir.Replace("'", "''")}'\"";

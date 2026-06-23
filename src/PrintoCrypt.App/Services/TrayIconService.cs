@@ -28,6 +28,15 @@ public sealed class TrayIconService : IDisposable
         _icon.ShowBalloonTip(title, message, icon);
     }
 
+    public void SetLoading(bool loading)
+    {
+        _icon.ToolTipText = loading ? L.Get("TrayTooltipLoading") : L.Get("TrayTooltip");
+        if (_icon.ContextMenu is not null)
+        {
+            _icon.ContextMenu.IsEnabled = !loading;
+        }
+    }
+
     private System.Windows.Controls.ContextMenu BuildMenu()
     {
         var menu = new System.Windows.Controls.ContextMenu();

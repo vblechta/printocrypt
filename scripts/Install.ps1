@@ -8,6 +8,7 @@ param(
     [switch]$SkipLaunch,
     [switch]$SkipAppCopy,
     [switch]$Quiet,
+    [switch]$Repair,
     [string]$ResultFile = "",
     [ValidateSet("install", "update", "")]
     [string]$AnalyticsAction = ""
@@ -26,6 +27,22 @@ if (-not (Test-Path $AnalyticsScript)) {
 }
 if (Test-Path $AnalyticsScript) {
     . $AnalyticsScript
+}
+
+$script:InstallLogPath = Join-Path $env:ProgramData "PrintoCrypt\install.log"
+$script:PrintoCryptBrokerServiceName = "PrintoCryptBroker"
+
+function Write-InstallLog {
+    param([string]$Message)
+
+    $line = "{0:yyyy-MM-dd HH:mm:ss} {1}" -f (Get-Date), $Message
+    try {
+        $logDir = Split-Path $script:InstallLogPath -Parent
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+        Add-Content -Path $script:InstallLogPath -Value $line -Encoding UTF8
+    }
+    catch {
+    }
 }
 
 function Test-IsAdministrator {
@@ -55,6 +72,11 @@ function Request-Elevation {
 }
 
 if (-not (Test-IsAdministrator)) {
+    if ($Quiet) {
+        Write-InstallLog "Installation failed: administrator privileges are required."
+        exit 1
+    }
+
     Request-Elevation
 }
 
@@ -447,6 +469,8 @@ function Resolve-SourceAppDir {
 }
 
 function Stop-PrintoCryptProcess {
+    Stop-Service -Name $script:PrintoCryptBrokerServiceName -Force -ErrorAction SilentlyContinue
+
     Get-Process -Name "PrintoCrypt" -ErrorAction SilentlyContinue | ForEach-Object {
         Write-Step "Stopping PrintoCrypt..."
         Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
@@ -534,6 +558,58 @@ function Remove-LegacyPrinterPort {
     Write-Ok "Removed legacy port '$LegacyPortName'"
 }
 
+function Install-PrintoCryptPrinterViaPrintUi {
+    param(
+        [string]$PrinterName,
+        [string]$PortName,
+        [string]$DriverName
+    )
+
+    $infPath = Get-PrintDriverInfPath
+    if (-not $infPath) {
+        throw "Could not locate a printer driver INF for PrintUI fallback."
+    }
+
+    Write-InstallLog "Installing printer '$PrinterName' via PrintUI fallback."
+
+    $argumentList = @(
+        "printui.dll,PrintUIEntry",
+        "/if",
+        "/b", $PrinterName,
+        "/f", $infPath,
+        "/r", $PortName,
+        "/m", $DriverName,
+        "/Z"
+    )
+
+    $process = Start-Process -FilePath "rundll32.exe" -ArgumentList $argumentList -Wait -PassThru -WindowStyle Hidden
+    if ($process.ExitCode -ne 0) {
+        throw "PrintUI printer installation failed with exit code $($process.ExitCode)."
+    }
+}
+
+function Grant-PrintoCryptPrinterAccess {
+    param([string]$PrinterName)
+
+    if (-not (Get-Command Set-Printer -ErrorAction SilentlyContinue)) {
+        return
+    }
+
+    $setPrinterParams = (Get-Command Set-Printer).Parameters
+    if (-not $setPrinterParams.ContainsKey("PermissionSDDL")) {
+        Write-InstallLog "Printer ACL update skipped because Set-Printer -PermissionSDDL is unavailable."
+        return
+    }
+
+    try {
+        Set-Printer -Name $PrinterName -PermissionSDDL "O:BAG:DUD:(A;OICI;SWRC;;;AU)(A;OICI;SWRC;;;SY)(A;OICI;SWRC;;;BA)" -ErrorAction Stop
+        Write-InstallLog "Granted printer access to authenticated users for '$PrinterName'."
+    }
+    catch {
+        Write-InstallLog "Could not update printer permissions for '$PrinterName': $($_.Exception.Message)"
+    }
+}
+
 function Install-PrintoCryptPrinter {
     Write-Step "Installing printer '$PrinterName' for all users..."
 
@@ -561,11 +637,19 @@ function Install-PrintoCryptPrinter {
         Remove-Printer -Name $PrinterName
     }
 
-    Add-Printer -Name $PrinterName -DriverName $driverName -PortName $portName
+    try {
+        Add-Printer -Name $PrinterName -DriverName $driverName -PortName $portName -ErrorAction Stop
+    }
+    catch {
+        Write-InstallLog "Add-Printer failed: $($_.Exception.Message)"
+        Install-PrintoCryptPrinterViaPrintUi -PrinterName $PrinterName -PortName $portName -DriverName $driverName
+    }
 
     if (-not (Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue)) {
         throw "Printer '$PrinterName' was not created."
     }
+
+    Grant-PrintoCryptPrinterAccess -PrinterName $PrinterName
 
     Write-Ok "Printer '$PrinterName' is available to all users on this PC."
 }
@@ -597,6 +681,10 @@ function Install-PrintoCryptApp {
     $analyticsScript = Join-Path (Split-Path $PSCommandPath -Parent) "PrintoCrypt-Analytics.ps1"
     if (Test-Path $analyticsScript) {
         Copy-Item -Path $analyticsScript -Destination (Join-Path $DestinationDir "PrintoCrypt-Analytics.ps1") -Force
+    }
+    $userLaunchScript = Join-Path (Split-Path $PSCommandPath -Parent) "PrintoCrypt-UserLaunch.ps1"
+    if (Test-Path $userLaunchScript) {
+        Copy-Item -Path $userLaunchScript -Destination (Join-Path $DestinationDir "PrintoCrypt-UserLaunch.ps1") -Force
     }
 }
 
@@ -703,12 +791,14 @@ function Start-PrintoCryptForUser {
         }
     }
 
-    if (Get-Command Invoke-InInteractiveUserSession -ErrorAction SilentlyContinue) {
-        return Invoke-InInteractiveUserSession `
-            -UserName $UserName `
-            -Execute $ExePath `
-            -WorkingDirectory $workingDir `
-            -WaitSeconds 3
+    $userLauncher = Join-Path $InstallDir "PrintoCrypt-UserLaunch.cmd"
+    if (Test-Path $userLauncher) {
+        try {
+            Start-Process -FilePath $userLauncher -WorkingDirectory $InstallDir -WindowStyle Hidden -ErrorAction Stop | Out-Null
+            return $true
+        }
+        catch {
+        }
     }
 
     return $false
@@ -791,17 +881,160 @@ function Test-TcpPortListening {
     return $false
 }
 
+function Get-ScExePath {
+    $system32 = Join-Path $env:SystemRoot "System32"
+    $candidates = @(
+        (Join-Path $system32 "sc.exe"),
+        (Join-Path $env:SystemRoot "Sysnative\sc.exe")
+    )
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            return $candidate
+        }
+    }
+
+    return "sc.exe"
+}
+
+function Invoke-ScExe {
+    param([string[]]$ArgumentList)
+
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    try {
+        $scPath = Get-ScExePath
+        $output = (& $scPath @ArgumentList 2>&1 | ForEach-Object { "$_" }) -join [Environment]::NewLine
+        return @{
+            ExitCode = $LASTEXITCODE
+            Output   = $output.Trim()
+        }
+    }
+    catch {
+        return @{
+            ExitCode = 1
+            Output   = $_.Exception.Message
+        }
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+}
+
+function Invoke-SafeScheduledTaskDelete {
+    param([string]$TaskName)
+
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    try {
+        Unregister-ScheduledTask -TaskName $TaskName -TaskPath "\PrintoCrypt\" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    }
+    catch {
+    }
+
+    try {
+        $schTasksPath = Join-Path $env:SystemRoot "System32\schtasks.exe"
+        if (Test-Path -LiteralPath $schTasksPath) {
+            & $schTasksPath /Delete /TN "\PrintoCrypt\$TaskName" /F 2>&1 | Out-Null
+        }
+    }
+    catch {
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+}
+
+function Stop-PrintoCryptBrokerService {
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    try {
+        Stop-Service -Name $script:PrintoCryptBrokerServiceName -Force -ErrorAction SilentlyContinue | Out-Null
+    }
+    catch {
+    }
+
+    $service = Get-CimInstance Win32_Service -Filter "Name='$($script:PrintoCryptBrokerServiceName)'" -ErrorAction SilentlyContinue
+    if (-not $service) {
+        $ErrorActionPreference = $previousErrorAction
+        return
+    }
+
+    try {
+        if ($service.State -ne "Stopped") {
+            $stopResult = Invoke-CimMethod -InputObject $service -MethodName StopService -ErrorAction SilentlyContinue
+            if ($stopResult -and $stopResult.ReturnValue -ne 0) {
+                Write-InstallLog "Broker service StopService returned $($stopResult.ReturnValue)."
+            }
+
+            Start-Sleep -Seconds 2
+        }
+    }
+    catch {
+        Write-InstallLog "Could not stop broker service via CIM: $($_.Exception.Message)"
+    }
+
+    try {
+        $service = Get-CimInstance Win32_Service -Filter "Name='$($script:PrintoCryptBrokerServiceName)'" -ErrorAction SilentlyContinue
+        if ($service) {
+            $deleteResult = Invoke-CimMethod -InputObject $service -MethodName Delete -ErrorAction SilentlyContinue
+            if ($deleteResult -and $deleteResult.ReturnValue -ne 0) {
+                Write-InstallLog "Broker service Delete returned $($deleteResult.ReturnValue); trying sc.exe."
+                Invoke-ScExe -ArgumentList @("delete", $script:PrintoCryptBrokerServiceName) | Out-Null
+            }
+            elseif (-not $deleteResult) {
+                Write-InstallLog "Broker service Delete returned no result; trying sc.exe."
+                Invoke-ScExe -ArgumentList @("delete", $script:PrintoCryptBrokerServiceName) | Out-Null
+            }
+
+            Start-Sleep -Seconds 2
+        }
+    }
+    catch {
+        Write-InstallLog "Could not delete broker service: $($_.Exception.Message)"
+        Invoke-ScExe -ArgumentList @("delete", $script:PrintoCryptBrokerServiceName) | Out-Null
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
+}
+
+function Remove-LegacyPrintoCryptBrokerStartup {
+    param([string]$InstallDir)
+
+    Remove-LegacyPrintoCryptScheduledTasks
+
+    $machineRunKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+    if (Test-Path $machineRunKey) {
+        Remove-ItemProperty -Path $machineRunKey -Name "PrintoCrypt Broker" -ErrorAction SilentlyContinue
+    }
+
+    if ($InstallDir) {
+        Remove-Item -Path (Join-Path $InstallDir "PrintoCrypt-BrokerLaunch.cmd") -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path (Join-Path $InstallDir "PrintoCrypt-BrokerService.cmd") -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Start-PrintoCryptBroker {
     param([int]$Port = 9150)
 
-    Write-Step "Starting PrintoCrypt broker..."
+    Write-Step "Starting PrintoCrypt broker service..."
+
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
 
     try {
-        Start-ScheduledTask -TaskPath "\PrintoCrypt\" -TaskName "PrintoCrypt Broker" -ErrorAction Stop | Out-Null
+        Start-Service -Name $script:PrintoCryptBrokerServiceName -ErrorAction Stop
     }
     catch {
-        schtasks /Run /TN "\PrintoCrypt\PrintoCrypt Broker" 2>$null | Out-Null
+        Write-InstallLog "Start-Service failed: $($_.Exception.Message)"
+        $startResult = Invoke-ScExe -ArgumentList @("start", $script:PrintoCryptBrokerServiceName)
+        if ($startResult.ExitCode -ne 0 -and $startResult.Output) {
+            Write-InstallLog "sc.exe start output: $($startResult.Output)"
+        }
     }
+
+    $ErrorActionPreference = $previousErrorAction
 
     for ($attempt = 0; $attempt -lt 15; $attempt++) {
         if (Test-TcpPortListening -Port $Port) {
@@ -813,10 +1046,287 @@ function Start-PrintoCryptBroker {
     }
 
     if (-not $Quiet) {
-        Write-Host "PrintoCrypt broker did not start listening on port $Port. Printing may not work until the broker task runs." -ForegroundColor Yellow
+        Write-Host "PrintoCrypt broker service did not start listening on port $Port." -ForegroundColor Yellow
+    }
+
+    Write-InstallLog "Broker service did not open port $Port within 15 seconds."
+    return $false
+}
+
+function Get-ShortPathSafe {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $Path
+    }
+
+    try {
+        $fso = New-Object -ComObject Scripting.FileSystemObject
+        return $fso.GetFile((Resolve-Path -LiteralPath $Path).Path).ShortPath
+    }
+    catch {
+        return (Resolve-Path -LiteralPath $Path).Path
+    }
+}
+
+function Get-PrintoCryptBrokerServicePathCandidates {
+    param([string]$ExePath)
+
+    if (-not (Test-Path -LiteralPath $ExePath)) {
+        throw "PrintoCrypt executable was not found at '$ExePath'."
+    }
+
+    $resolvedPath = (Resolve-Path -LiteralPath $ExePath).Path
+    $shortPath = Get-ShortPathSafe -Path $resolvedPath
+    $candidates = @()
+
+    foreach ($path in @($resolvedPath, $shortPath)) {
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            continue
+        }
+
+        $quoted = """$path"" --broker"
+        if ($candidates -notcontains $quoted) {
+            $candidates += $quoted
+        }
+
+        $unquoted = "$path --broker"
+        if ($candidates -notcontains $unquoted) {
+            $candidates += $unquoted
+        }
+    }
+
+    return $candidates
+}
+
+function Wait-PrintoCryptBrokerServiceRemoved {
+    param([int]$TimeoutSeconds = 30)
+
+    for ($attempt = 0; $attempt -lt $TimeoutSeconds; $attempt++) {
+        $service = Get-CimInstance Win32_Service -Filter "Name='$($script:PrintoCryptBrokerServiceName)'" -ErrorAction SilentlyContinue
+        if (-not $service) {
+            return $true
+        }
+
+        Start-Sleep -Seconds 1
     }
 
     return $false
+}
+
+function New-PrintoCryptBrokerServiceViaSc {
+    param(
+        [string]$ServicePath,
+        [string]$DisplayName,
+        [string]$ExePath = ""
+    )
+
+    $binPathVariants = @(
+        'binPath= "' + $ServicePath + '"',
+        'binPath= ' + $ServicePath
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($ExePath) -and (Test-Path -LiteralPath $ExePath)) {
+        $resolvedPath = (Resolve-Path -LiteralPath $ExePath).Path
+        $shortPath = Get-ShortPathSafe -Path $resolvedPath
+        $binPathVariants += "binPath= $shortPath --broker"
+        $binPathVariants += 'binPath= "\"' + $resolvedPath + '\" --broker"'
+    }
+
+    foreach ($binPath in ($binPathVariants | Select-Object -Unique)) {
+        Write-InstallLog "Trying sc.exe create with $binPath"
+        $createResult = Invoke-ScExe -ArgumentList @(
+            "create",
+            $script:PrintoCryptBrokerServiceName,
+            $binPath,
+            "start= auto",
+            "DisplayName= $DisplayName"
+        )
+
+        if ($createResult.ExitCode -eq 0) {
+            Write-InstallLog "Created broker service via sc.exe."
+            return $true
+        }
+
+        Write-InstallLog "sc.exe create failed (exit $($createResult.ExitCode)): $($createResult.Output)"
+    }
+
+    return $false
+}
+
+function New-PrintoCryptBrokerServiceViaCim {
+    param(
+        [string]$ServicePath,
+        [string]$DisplayName,
+        [string]$Description
+    )
+
+    $createResult = Invoke-CimMethod -ClassName Win32_Service -MethodName Create -Arguments @{
+        Name            = $script:PrintoCryptBrokerServiceName
+        DisplayName     = $DisplayName
+        PathName        = $ServicePath
+        ServiceType     = [byte]16
+        ErrorControl    = [byte]1
+        StartMode       = "Automatic"
+        DesktopInteract = $false
+        StartName       = "LocalSystem"
+    }
+
+    switch ($createResult.ReturnValue) {
+        0 {
+            Write-InstallLog "Created broker service via Win32_Service.Create."
+            return $true
+        }
+        1073 {
+            Write-InstallLog "Broker service already exists; removing and recreating."
+            Stop-PrintoCryptBrokerService
+            if (-not (Wait-PrintoCryptBrokerServiceRemoved)) {
+                Write-InstallLog "Timed out waiting for existing broker service removal."
+                return $false
+            }
+
+            $retryResult = Invoke-CimMethod -ClassName Win32_Service -MethodName Create -Arguments @{
+                Name            = $script:PrintoCryptBrokerServiceName
+                DisplayName     = $DisplayName
+                PathName        = $ServicePath
+                ServiceType     = [byte]16
+                ErrorControl    = [byte]1
+                StartMode       = "Automatic"
+                DesktopInteract = $false
+                StartName       = "LocalSystem"
+            }
+
+            if ($retryResult.ReturnValue -eq 0) {
+                Write-InstallLog "Recreated broker service via Win32_Service.Create."
+                return $true
+            }
+
+            Write-InstallLog "Win32_Service.Create retry failed with return code $($retryResult.ReturnValue)."
+            return $false
+        }
+        default {
+            Write-InstallLog "Win32_Service.Create failed with return code $($createResult.ReturnValue) for path '$ServicePath'."
+            return $false
+        }
+    }
+}
+function New-PrintoCryptBrokerServiceWrapper {
+    param([string]$InstallDir)
+
+    $wrapperPath = Join-Path $InstallDir "PrintoCrypt-BrokerService.cmd"
+    @"
+@echo off
+cd /d "%~dp0"
+"%~dp0PrintoCrypt.exe" --broker
+"@ | Set-Content -Path $wrapperPath -Encoding ASCII -Force
+
+    return $wrapperPath
+}
+
+function Install-PrintoCryptBrokerService {
+    param(
+        [string]$ExePath,
+        [string]$InstallDir
+    )
+
+    if (-not (Test-Path -LiteralPath $ExePath)) {
+        throw "PrintoCrypt executable was not found at '$ExePath'."
+    }
+
+    Write-InstallLog "Installing broker Windows service for '$ExePath'."
+
+    try {
+        Write-InstallLog "Removing any existing PrintoCrypt broker service."
+        Stop-PrintoCryptBrokerService
+        Wait-PrintoCryptBrokerServiceRemoved | Out-Null
+
+        Write-InstallLog "Removing legacy PrintoCrypt startup entries."
+        Remove-LegacyPrintoCryptBrokerStartup -InstallDir $InstallDir
+    }
+    catch {
+        Write-InstallLog "Legacy broker cleanup failed (continuing): $($_.Exception.Message)"
+    }
+
+    Write-InstallLog "Building broker service path candidates."
+    $servicePathCandidates = Get-PrintoCryptBrokerServicePathCandidates -ExePath $ExePath
+    $displayName = "PrintoCrypt Broker"
+    $description = "Receives PrintoCrypt print jobs and routes them to logged-on users."
+
+    Write-InstallLog ("Broker service path candidates: {0}" -f ($servicePathCandidates -join " | "))
+
+    $serviceCreated = $false
+    $lastError = "Unknown broker service creation failure."
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+
+    foreach ($servicePath in $servicePathCandidates) {
+        Write-InstallLog "Trying broker service path: $servicePath"
+
+        try {
+            if (New-PrintoCryptBrokerServiceViaCim -ServicePath $servicePath -DisplayName $displayName -Description $description) {
+                $serviceCreated = $true
+                break
+            }
+        }
+        catch {
+            $lastError = $_.Exception.Message
+            Write-InstallLog "Win32_Service.Create threw: $lastError"
+        }
+
+        try {
+            New-Service `
+                -Name $script:PrintoCryptBrokerServiceName `
+                -BinaryPathName $servicePath `
+                -DisplayName $displayName `
+                -Description $description `
+                -StartupType Automatic `
+                -ErrorAction Stop | Out-Null
+            $serviceCreated = $true
+            Write-InstallLog "Created broker service via New-Service."
+            break
+        }
+        catch {
+            $lastError = $_.Exception.Message
+            Write-InstallLog "New-Service failed for '$servicePath': $lastError"
+            Stop-PrintoCryptBrokerService
+            Wait-PrintoCryptBrokerServiceRemoved | Out-Null
+        }
+
+        if (New-PrintoCryptBrokerServiceViaSc -ServicePath $servicePath -DisplayName $displayName -ExePath $ExePath) {
+            $serviceCreated = $true
+            break
+        }
+
+        Stop-PrintoCryptBrokerService
+        Wait-PrintoCryptBrokerServiceRemoved | Out-Null
+    }
+
+    $ErrorActionPreference = $previousErrorAction
+
+    if (-not $serviceCreated) {
+        throw "Could not create PrintoCrypt broker service. $lastError"
+    }
+
+    $descriptionResult = Invoke-ScExe -ArgumentList @(
+        "description",
+        $script:PrintoCryptBrokerServiceName,
+        $description
+    )
+    if ($descriptionResult.ExitCode -ne 0 -and $descriptionResult.Output) {
+        Write-InstallLog "Could not set broker service description: $($descriptionResult.Output)"
+    }
+
+    $failureResult = Invoke-ScExe -ArgumentList @(
+        "failure",
+        $script:PrintoCryptBrokerServiceName,
+        "reset= 86400",
+        "actions= restart/60000/restart/60000/restart/60000"
+    )
+    if ($failureResult.ExitCode -ne 0 -and $failureResult.Output) {
+        Write-InstallLog "Could not configure broker service recovery: $($failureResult.Output)"
+    }
+
+    Write-InstallLog "Installed Windows service '$($script:PrintoCryptBrokerServiceName)'."
 }
 
 function Write-MachineSettings {
@@ -836,6 +1346,122 @@ function Write-MachineSettings {
     ($settings | ConvertTo-Json -Depth 4) | Set-Content -Path (Join-Path $settingsDir "machine-settings.json") -Encoding UTF8
 }
 
+function Ensure-PrintoCryptSupportScripts {
+    param([string]$InstallDir)
+
+    foreach ($scriptName in @(
+            "PrintoCrypt-UserLaunch.ps1",
+            "PrintoCrypt-Analytics.ps1",
+            "PrintoCrypt-Spooler.ps1"
+        )) {
+        $targetPath = Join-Path $InstallDir $scriptName
+        if (Test-Path $targetPath) {
+            continue
+        }
+
+        $sourcePath = Join-Path (Split-Path $PSCommandPath -Parent) $scriptName
+        if (-not (Test-Path $sourcePath)) {
+            $sourcePath = Join-Path $PSScriptRoot $scriptName
+        }
+
+        if (Test-Path $sourcePath) {
+            Copy-Item -Path $sourcePath -Destination $targetPath -Force
+            Write-InstallLog "Copied missing support script '$scriptName'."
+        }
+    }
+}
+
+function Register-PrintoCryptActiveSetup {
+    param(
+        [string]$ExePath,
+        [string]$InstallDir,
+        [string]$UserLauncherPath = ""
+    )
+
+    $componentId = "{8F4E2A61-9C3D-4B15-9E7A-1D2F8C6B4A90}"
+    $keyPath = "HKLM:\SOFTWARE\Microsoft\Active Setup\Installed Components\$componentId"
+    $userLaunchScript = Join-Path $InstallDir "PrintoCrypt-UserLaunch.ps1"
+
+    if (-not (Test-Path $userLaunchScript)) {
+        Write-InstallLog "Active Setup skipped because PrintoCrypt-UserLaunch.ps1 is missing."
+        return
+    }
+
+    if ([string]::IsNullOrWhiteSpace($UserLauncherPath)) {
+        $UserLauncherPath = Join-Path $InstallDir "PrintoCrypt-UserLaunch.cmd"
+    }
+
+    $version = Get-PrintoCryptVersionFromExe -ExePath $ExePath
+    if ([string]::IsNullOrWhiteSpace($version) -or $version -eq "unknown") {
+        $version = "1.0.1"
+    }
+
+    $stubPath = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$userLaunchScript`""
+    New-Item -Path $keyPath -Force | Out-Null
+    Set-ItemProperty -Path $keyPath -Name "(default)" -Value "PrintoCrypt"
+    Set-ItemProperty -Path $keyPath -Name "Version" -Value ",$version"
+    Set-ItemProperty -Path $keyPath -Name "StubPath" -Value $stubPath
+    Set-ItemProperty -Path $keyPath -Name "IsInstalled" -Value 1 -Type DWord
+
+    if (Test-Path $UserLauncherPath) {
+        $configKey = "HKLM:\SOFTWARE\PrintoCrypt"
+        if (-not (Test-Path $configKey)) {
+            New-Item -Path $configKey -Force | Out-Null
+        }
+
+        Set-ItemProperty -Path $configKey -Name "UserLauncher" -Value $UserLauncherPath -Type String
+    }
+
+    Write-InstallLog "Registered Active Setup for per-user launch (version $version)."
+    Write-Ok "Registered per-user startup for domain and local accounts."
+}
+
+function Remove-LegacyPrintoCryptScheduledTasks {
+    Invoke-SafeScheduledTaskDelete -TaskName "PrintoCrypt Broker"
+    Invoke-SafeScheduledTaskDelete -TaskName "PrintoCrypt"
+}
+
+function New-PrintoCryptLauncherScript {
+    param(
+        [string]$InstallDir,
+        [string]$ScriptName,
+        [string]$Arguments = ""
+    )
+
+    $scriptPath = Join-Path $InstallDir $ScriptName
+    $argumentSuffix = if ([string]::IsNullOrWhiteSpace($Arguments)) { "" } else { " $Arguments" }
+
+    @"
+@echo off
+cd /d "%~dp0"
+start "" /MIN "%~dp0PrintoCrypt.exe"$argumentSuffix
+"@ | Set-Content -Path $scriptPath -Encoding ASCII -Force
+
+    return $scriptPath
+}
+
+function Register-PrintoCryptRegistryStartup {
+    param(
+        [string]$ExePath,
+        [string]$InstallDir,
+        [int]$Port = 9150,
+        [string]$PrinterName = "PrintoCrypt"
+    )
+
+    Ensure-PrintoCryptSupportScripts -InstallDir $InstallDir
+    Write-MachineSettings -Port $Port -PrinterName $PrinterName
+    Write-InstallLog "Registering PrintoCrypt startup for '$ExePath'."
+
+    Install-PrintoCryptBrokerService -ExePath $ExePath -InstallDir $InstallDir
+
+    $userLauncher = New-PrintoCryptLauncherScript -InstallDir $InstallDir -ScriptName "PrintoCrypt-UserLaunch.cmd"
+
+    Register-PrintoCryptActiveSetup -ExePath $ExePath -InstallDir $InstallDir -UserLauncherPath $userLauncher
+    Start-PrintoCryptBroker -Port $Port
+
+    Write-Ok "Registered PrintoCrypt broker service and per-user startup."
+}
+
 function Register-StartupForAllUsers {
     param(
         [string]$ExePath,
@@ -844,44 +1470,7 @@ function Register-StartupForAllUsers {
         [string]$PrinterName = "PrintoCrypt"
     )
 
-    Write-MachineSettings -Port $Port -PrinterName $PrinterName
-
-    $taskPath = "\PrintoCrypt\"
-
-    Unregister-ScheduledTask -TaskName "PrintoCrypt Broker" -TaskPath $taskPath -Confirm:$false -ErrorAction SilentlyContinue
-    Unregister-ScheduledTask -TaskName "PrintoCrypt" -TaskPath $taskPath -Confirm:$false -ErrorAction SilentlyContinue
-
-    $brokerAction = New-ScheduledTaskAction -Execute $ExePath -Argument "--broker" -WorkingDirectory $InstallDir
-    $brokerTrigger = New-ScheduledTaskTrigger -AtStartup
-    $brokerPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
-    $brokerSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-
-    Register-ScheduledTask `
-        -TaskName "PrintoCrypt Broker" `
-        -TaskPath $taskPath `
-        -Action $brokerAction `
-        -Trigger $brokerTrigger `
-        -Principal $brokerPrincipal `
-        -Settings $brokerSettings `
-        -Force | Out-Null
-
-    $userAction = New-ScheduledTaskAction -Execute $ExePath -WorkingDirectory $InstallDir
-    $userTrigger = New-ScheduledTaskTrigger -AtLogon
-    $userPrincipal = New-ScheduledTaskPrincipal -GroupId "Users" -RunLevel Limited
-    $userSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-
-    Register-ScheduledTask `
-        -TaskName "PrintoCrypt" `
-        -TaskPath $taskPath `
-        -Action $userAction `
-        -Trigger $userTrigger `
-        -Principal $userPrincipal `
-        -Settings $userSettings `
-        -Force | Out-Null
-
-    Start-PrintoCryptBroker -Port $Port
-
-    Write-Ok "Registered PrintoCrypt broker and per-user startup tasks."
+    Register-PrintoCryptRegistryStartup -ExePath $ExePath -InstallDir $InstallDir -Port $Port -PrinterName $PrinterName
 }
 
 function Register-UninstallEntry {
@@ -944,6 +1533,14 @@ function Start-PrintoCryptAsUser {
 }
 
 try {
+    if ($Repair) {
+        $SkipAppCopy = $true
+        Write-InstallLog "Repair mode: reconfiguring PrintoCrypt at '$InstallDir'."
+    }
+    else {
+        Write-InstallLog "Starting PrintoCrypt installation at '$InstallDir'."
+    }
+
     if (-not $PrinterOnly -and -not $Quiet) {
         Write-Host ""
         Write-Host "PrintoCrypt installer" -ForegroundColor White
@@ -985,16 +1582,19 @@ try {
     if (-not $PrinterOnly -and -not $SkipAppCopy) {
         $packageRoot = Resolve-PackageRoot
         $sourceAppDir = Resolve-SourceAppDir -Root $packageRoot
-        Ensure-PrintoCryptRuntime -AppDir $sourceAppDir
         Stop-PrintoCryptProcess
+        Install-PrintoCryptPrinter
+        Ensure-PrintoCryptRuntime -AppDir $sourceAppDir
         Install-PrintoCryptApp -SourceDir $sourceAppDir -DestinationDir $InstallDir
     }
     elseif (-not $PrinterOnly) {
-        Ensure-PrintoCryptRuntime -AppDir $InstallDir
         Stop-PrintoCryptProcess
+        Install-PrintoCryptPrinter
+        Ensure-PrintoCryptRuntime -AppDir $InstallDir
     }
-
-    Install-PrintoCryptPrinter
+    else {
+        Install-PrintoCryptPrinter
+    }
 
     if (-not $PrinterOnly) {
         Update-UserSettings -AppDataRoot (Get-InteractiveUserAppData)
@@ -1030,10 +1630,12 @@ try {
         }
     }
 
+    Write-InstallLog $message
     Write-Result -Success $true -Message $message
 }
 catch {
     $message = $_.Exception.Message
+    Write-InstallLog "Installation failed: $message"
     Write-Result -Success $false -Message $message
     Show-InstallFailure -Message $message
     exit 1

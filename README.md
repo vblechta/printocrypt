@@ -2,23 +2,27 @@
 
 Virtual Windows printer that saves every print job as a **password-protected PDF**. When you print, PrintoCrypt prompts for a password before writing the file.
 
+**Current version:** 1.0.1 — see [CHANGELOG.md](CHANGELOG.md) for release notes.
+
 ## How it works
 
 ```mermaid
 flowchart LR
     App[Any Windows app] -->|Print| Printer[PrintoCrypt printer]
-    Printer -->|XPS over TCP| Server[PrintoCrypt app]
-    Server -->|Password dialog| User[You]
+    Printer -->|XPS over TCP| Broker[PrintoCryptBroker service]
+    Broker -->|Named pipe| Tray[PrintoCrypt tray app]
+    Tray -->|Password dialog| User[You]
     User -->|Password| Encrypt[AES-128 PDF encryption]
     Encrypt --> PDF[Encrypted PDF in Documents/PrintoCrypt]
 ```
 
 1. Windows sends the print job to a **virtual XPS printer** on `127.0.0.1:9150`.
-2. The PrintoCrypt tray app receives the job.
-3. A **password dialog** appears (print is paused until you confirm or cancel).
-4. The job is converted to PDF with **built-in Windows XPS rendering**, then encrypted with **PDFsharp** (128-bit AES, all permissions restricted).
-5. The encrypted PDF is saved to your output folder.
-6. **Outlook** opens a new email draft with the PDF attached (if installed).
+2. The **PrintoCryptBroker** Windows service receives the job and routes it to the user who printed.
+3. If needed, PrintoCrypt launches the **tray app** in that user's session.
+4. A **password dialog** appears (print is paused until you confirm or cancel).
+5. The job is converted to PDF with **built-in Windows XPS rendering**, then encrypted with **PDFsharp** (128-bit AES, all permissions restricted).
+6. The encrypted PDF is saved to your output folder.
+7. **Outlook** opens a new email draft with the PDF attached (if installed).
 
 ## Requirements
 
@@ -110,9 +114,10 @@ The installer:
 
 - Installs PrintoCrypt to `%ProgramFiles%\PrintoCrypt`
 - Registers the **PrintoCrypt** printer for **all users** on the PC
-- Registers **Start with Windows** for all users (machine Run key)
+- Installs and starts the **PrintoCryptBroker** Windows service (print capture)
+- Registers per-user startup via **Active Setup** so the tray app runs for each user (local and domain)
 - Creates Start Menu shortcuts
-- Starts the tray app
+- Starts the broker service and launches the tray app for the current user
 
 ## Uninstall
 
@@ -122,7 +127,7 @@ Double-click **`Uninstall.cmd`**, or run as administrator:
 powershell -ExecutionPolicy Bypass -File Uninstall.ps1
 ```
 
-This removes the app, printer, port, shortcuts, and startup entry.
+This removes the app, printer, port, broker service, shortcuts, and startup entries.
 
 From the app, **Settings → Install/Uninstall printer** only changes the printer (uses `-PrinterOnly`).
 
@@ -141,23 +146,24 @@ From the app, **Settings → Install/Uninstall printer** only changes the printe
 | Listen port | TCP port for the virtual printer (default `9150`) |
 | Open Outlook after saving | Compose a new Outlook email with the PDF attached |
 | Open output folder after saving | Show the saved file in Explorer |
-| Start with Windows | Register PrintoCrypt in the machine Run key (all users) |
+| Start with Windows | Register PrintoCrypt in the current user's Run key (via per-user launcher) |
 
 ## Project structure
 
 ```
 src/
   PrintoCrypt.Core/     PDF encryption, settings, job processing
-  PrintoCrypt.App/      WPF tray app, XPS-to-PDF conversion, TCP print server
+  PrintoCrypt.App/      WPF tray app, broker service, XPS-to-PDF conversion
 scripts/
   Build-Installer.ps1   Create setup zip and GUI installer
-  Install.ps1           Install app, printer, and launch
+  Install.ps1           Install app, printer, broker service, and launch
   Uninstall.ps1         Remove everything
 installer/
   PrintoCrypt.iss       Inno Setup GUI installer script
 Install.cmd             Double-click installer (requests admin)
 Uninstall.cmd           Double-click uninstaller (requests admin)
 Directory.Build.props   Shared product version
+CHANGELOG.md            Release history
 ```
 
 ## License

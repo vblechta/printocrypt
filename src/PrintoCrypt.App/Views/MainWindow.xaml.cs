@@ -70,6 +70,19 @@ public partial class MainWindow : Window
         UninstallPrinterButton.Content = L.Get("UninstallPrinter");
         CloseButton.Content = L.Get("Close");
         SaveButton.Content = L.Get("Save");
+        UpdateVersionLink();
+    }
+
+    private void UpdateVersionLink()
+    {
+        VersionLink.Text = L.Format("AppVersion", AppVersion.GetDisplayVersion());
+        VersionLink.ToolTip = L.Get("Changelog_OpenTooltip");
+    }
+
+    private void VersionLink_OnClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        var changelogWindow = new ChangelogWindow(this);
+        changelogWindow.ShowDialog();
     }
 
     private void LoadFields()

@@ -54,6 +54,8 @@ Copy-Item -Path (Join-Path $PSScriptRoot "Install.ps1") -Destination (Join-Path 
 Copy-Item -Path (Join-Path $PSScriptRoot "Uninstall.ps1") -Destination (Join-Path $OutputDir "Uninstall.ps1") -Force
 Copy-Item -Path (Join-Path $PSScriptRoot "PrintoCrypt-Spooler.ps1") -Destination (Join-Path $OutputDir "PrintoCrypt-Spooler.ps1") -Force
 Copy-Item -Path (Join-Path $PSScriptRoot "PrintoCrypt-Analytics.ps1") -Destination (Join-Path $OutputDir "PrintoCrypt-Analytics.ps1") -Force
+Copy-Item -Path (Join-Path $PSScriptRoot "PrintoCrypt-UserLaunch.ps1") -Destination (Join-Path $OutputDir "PrintoCrypt-UserLaunch.ps1") -Force
+Copy-Item -Path (Join-Path $repoRoot "CHANGELOG.md") -Destination (Join-Path $appOutputDir "CHANGELOG.md") -Force
 Copy-Item -Path (Join-Path $repoRoot "Install.cmd") -Destination (Join-Path $OutputDir "Install.cmd") -Force
 Copy-Item -Path (Join-Path $repoRoot "Uninstall.cmd") -Destination (Join-Path $OutputDir "Uninstall.cmd") -Force
 

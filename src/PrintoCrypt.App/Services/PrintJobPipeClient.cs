@@ -6,11 +6,22 @@ namespace PrintoCrypt.App.Services;
 
 internal static class PrintJobPipeClient
 {
-    public static async Task<bool> SendJobAsync(PrintJobInfo job, string targetUserName, CancellationToken cancellationToken = default)
+    public static Task<bool> SendJobAsync(
+        PrintJobInfo job,
+        string targetUserName,
+        CancellationToken cancellationToken = default)
+        => SendJobAsync(job, targetUserName, attemptCount: 5, connectTimeoutMs: 3000, cancellationToken);
+
+    public static async Task<bool> SendJobAsync(
+        PrintJobInfo job,
+        string targetUserName,
+        int attemptCount,
+        int connectTimeoutMs,
+        CancellationToken cancellationToken = default)
     {
         var pipeName = PrintJobPipeNames.GetJobPipeName(targetUserName);
 
-        for (var attempt = 0; attempt < 5; attempt++)
+        for (var attempt = 0; attempt < attemptCount; attempt++)
         {
             try
             {
@@ -21,13 +32,16 @@ internal static class PrintJobPipeClient
                     PipeOptions.Asynchronous,
                     TokenImpersonationLevel.Impersonation);
 
-                await pipe.ConnectAsync(3000, cancellationToken);
+                await pipe.ConnectAsync(connectTimeoutMs, cancellationToken);
                 await PrintJobPipeProtocol.WriteJobAsync(pipe, job, cancellationToken);
                 return true;
             }
             catch
             {
-                await Task.Delay(500, cancellationToken);
+                if (attempt + 1 < attemptCount)
+                {
+                    await Task.Delay(500, cancellationToken);
+                }
             }
         }
 

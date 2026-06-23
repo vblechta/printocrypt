@@ -213,24 +213,31 @@
             </TabItem>
         </TabControl>
 
-        <StackPanel Grid.Row="2"
-                    Orientation="Horizontal"
-                    HorizontalAlignment="Right"
-                    Margin="0,20,0,0">
-            <Button x:Name="CloseButton"
-                    Content="Close"
-                    Width="100"
-                    Height="36"
-                    Margin="0,0,8,0"
-                    Click="Close_OnClick"/>
-            <Button x:Name="SaveButton"
-                    Content="Save"
-                    Width="100"
-                    Height="36"
-                    Background="{StaticResource AccentBrush}"
-                    Foreground="White"
-                    BorderThickness="0"
-                    Click="Save_OnClick"/>
-        </StackPanel>
+        <Grid Grid.Row="2" Margin="0,20,0,0">
+            <TextBlock x:Name="VersionLink"
+                       HorizontalAlignment="Left"
+                       VerticalAlignment="Center"
+                       Foreground="{StaticResource AccentBrush}"
+                       TextDecorations="Underline"
+                       Cursor="Hand"
+                       MouseLeftButtonUp="VersionLink_OnClick"/>
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Right">
+                <Button x:Name="CloseButton"
+                        Content="Close"
+                        Width="100"
+                        Height="36"
+                        Margin="0,0,8,0"
+                        Click="Close_OnClick"/>
+                <Button x:Name="SaveButton"
+                        Content="Save"
+                        Width="100"
+                        Height="36"
+                        Background="{StaticResource AccentBrush}"
+                        Foreground="White"
+                        BorderThickness="0"
+                        Click="Save_OnClick"/>
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

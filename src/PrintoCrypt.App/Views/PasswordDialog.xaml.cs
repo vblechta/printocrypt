@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using PrintoCrypt.App.Localization;
+using PrintoCrypt.App.Services;
 using PrintoCrypt.Core.Models;
 
 namespace PrintoCrypt.App.Views;
@@ -83,6 +84,7 @@ public partial class PasswordDialog : Window
         ConfirmPasswordLabel.Text = L.Get("ConfirmPassword");
         CancelButton.Content = L.Get("Cancel");
         SubmitButton.Content = L.Get("Submit");
+        VersionText.Text = L.Format("AppVersion", AppVersion.GetDisplayVersion());
     }
 
     private void SubmitButton_OnClick(object sender, RoutedEventArgs e) => TrySubmit();
