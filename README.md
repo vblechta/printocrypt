@@ -24,6 +24,21 @@ flowchart LR
 6. The encrypted PDF is saved to your output folder.
 7. **Outlook** opens a new email draft with the PDF attached (if installed).
 
+### Telemetry data
+App sends very limited, anonymized telemetry data for usage statistics.
+Sent data are:
+- timestamp
+- public IP
+- hostname
+- action - install/uninstall/usage (usage is sent on every print)
+
+Purpose of "usage" event is to have better data for active app installations number.
+
+Data are sent as HTTP PUT to analytics server on address: https://analytics.printocrypt.ethercloud.io.
+
+WE DO NOT SHARE ANY OF THIS DATA TO ANYONE.
+WE DO NOT COLLECT ANY INFORMATIONS ABOUT ENCRYPTED OR TO BE ECRYPTED DOCUMENTS.
+
 ## Requirements
 
 - **Windows 10/11**
