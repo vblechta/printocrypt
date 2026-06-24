@@ -136,6 +136,24 @@ The installer:
 
 ## Uninstall
 
+### GUI installer
+
+```powershell
+PrintoCrypt-Setup.exe /uninstall
+```
+
+Silent:
+
+```powershell
+PrintoCrypt-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /uninstall
+```
+
+This runs the bundled `Uninstall.ps1` from the setup package (preferred). If that is unavailable, it falls back to Inno's `unins000.exe` or the installed `Uninstall.ps1`.
+
+The uninstaller stops the broker service, removes the printer, deletes application files, and removes the Add/Remove Programs entry.
+
+### Portable / script uninstall
+
 Double-click **`Uninstall.cmd`**, or run as administrator:
 
 ```powershell

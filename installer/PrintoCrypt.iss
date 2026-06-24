@@ -30,10 +30,10 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupLogging=yes
 CloseApplications=force
 CloseApplicationsFilter={#MyAppExeName}
-AppMutex=PrintoCrypt_Broker
 RestartApplications=no
 UsePreviousAppDir=yes
 MinVersion=10.0
+DisableStartupPrompt=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -43,8 +43,11 @@ Name: "czech"; MessagesFile: "compiler:Languages\Czech.isl"
 Source: "..\artifacts\PrintoCrypt-Setup\app\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\artifacts\PrintoCrypt-Setup\Install.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\artifacts\PrintoCrypt-Setup\Uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\artifacts\PrintoCrypt-Setup\Uninstall.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "..\artifacts\PrintoCrypt-Setup\PrintoCrypt-Spooler.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\artifacts\PrintoCrypt-Setup\PrintoCrypt-Spooler.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "..\artifacts\PrintoCrypt-Setup\PrintoCrypt-Analytics.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\artifacts\PrintoCrypt-Setup\PrintoCrypt-Analytics.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "..\artifacts\PrintoCrypt-Setup\PrintoCrypt-UserLaunch.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
@@ -60,7 +63,7 @@ Filename: "powershell.exe"; \
 
 [UninstallRun]
 Filename: "powershell.exe"; \
-  Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\Uninstall.ps1"" -InstallDir ""{app}"" -SkipAppRemoval -Quiet"; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\Uninstall.ps1"" -InstallDir ""{app}"" -InnoUninstall -Quiet"; \
   Flags: runhidden waituntilterminated; \
   RunOnceId: "ConfigureUninstall"
 
@@ -213,6 +216,174 @@ begin
   Result := 'update';
 end;
 
+function IsUninstallCommand: Boolean;
+var
+  Cmd: String;
+begin
+  Cmd := Lowercase(GetCmdTail);
+  Result := (Pos('/uninstall', Cmd) > 0) or (Pos('/remove', Cmd) > 0);
+end;
+
+function GetUninstallParameters: String;
+var
+  Cmd: String;
+begin
+  Cmd := Lowercase(GetCmdTail);
+  if Pos('/verysilent', Cmd) > 0 then
+    Result := '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
+  else if Pos('/silent', Cmd) > 0 then
+    Result := '/SILENT /NORESTART'
+  else
+    Result := '';
+end;
+
+function GetInstallDirectory(var InstallDir: String): Boolean;
+begin
+  InstallDir := '';
+  if RegQueryStringValue(HKLM, UninstallKeyInno, 'InstallLocation', InstallDir) then
+  begin
+    Result := InstallDir <> '';
+    Exit;
+  end;
+
+  if RegQueryStringValue(HKLM, UninstallKeyLegacy, 'InstallLocation', InstallDir) then
+  begin
+    Result := InstallDir <> '';
+    Exit;
+  end;
+
+  InstallDir := ExpandConstant('{autopf}\PrintoCrypt');
+  Result := DirExists(InstallDir);
+end;
+
+function WaitForPrintoCryptRemoval(const InstallDir: String): Boolean;
+var
+  Attempt: Integer;
+begin
+  Result := False;
+  for Attempt := 1 to 60 do
+  begin
+    if (not DirExists(InstallDir)) and
+       (not RegKeyExists(HKLM, UninstallKeyInno)) and
+       (not RegKeyExists(HKLM, UninstallKeyLegacy)) then
+    begin
+      Result := True;
+      Exit;
+    end;
+
+    Sleep(1000);
+  end;
+end;
+
+function TryLaunchScriptUninstaller: Boolean;
+var
+  InstallDir: String;
+  UninstallScript: String;
+  Params: String;
+  ResultCode: Integer;
+  ShowMode: Integer;
+begin
+  Result := False;
+  if not GetInstallDirectory(InstallDir) then
+    Exit;
+
+  UninstallScript := AddBackslash(InstallDir) + 'Uninstall.ps1';
+  try
+    ExtractTemporaryFile('Uninstall.ps1');
+    ExtractTemporaryFile('PrintoCrypt-Spooler.ps1');
+    ExtractTemporaryFile('PrintoCrypt-Analytics.ps1');
+    UninstallScript := ExpandConstant('{tmp}\Uninstall.ps1');
+    Log('Using bundled uninstall script: ' + UninstallScript);
+  except
+    Log('Could not extract bundled uninstall scripts; using installed copy.');
+  end;
+
+  if not FileExists(UninstallScript) then
+  begin
+    UninstallScript := AddBackslash(InstallDir) + 'Uninstall.ps1';
+    if not FileExists(UninstallScript) then
+      Exit;
+  end;
+
+  Params :=
+    '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + UninstallScript +
+    '" -InstallDir "' + InstallDir + '" -SynchronousCleanup';
+  if WizardSilent then
+    Params := Params + ' -Quiet';
+
+  Log('Uninstall.ps1 params: ' + Params);
+
+  if WizardSilent then
+    ShowMode := SW_HIDE
+  else
+    ShowMode := SW_SHOW;
+
+  if not Exec('powershell.exe', Params, '', ShowMode, ewWaitUntilTerminated, ResultCode) then
+    Exit;
+
+  Log('Uninstall.ps1 exit code: ' + IntToStr(ResultCode));
+
+  if ResultCode <> 0 then
+  begin
+    if WizardSilent then
+      ExitProcess(ResultCode);
+    Exit;
+  end;
+
+  if WizardSilent then
+  begin
+    if not WaitForPrintoCryptRemoval(InstallDir) then
+      ExitProcess(1);
+    ExitProcess(0);
+  end;
+
+  Result := True;
+end;
+
+function TryLaunchInnoUninstaller: Boolean;
+var
+  UninstallString: String;
+  UninstallExe: String;
+  InstallDir: String;
+  ResultCode: Integer;
+  ShowMode: Integer;
+begin
+  Result := False;
+  if not RegQueryStringValue(HKLM, UninstallKeyInno, 'UninstallString', UninstallString) then
+    Exit;
+
+  UninstallExe := RemoveQuotes(UninstallString);
+  if not FileExists(UninstallExe) then
+    Exit;
+
+  if not GetInstallDirectory(InstallDir) then
+    InstallDir := ExpandConstant('{autopf}\PrintoCrypt');
+
+  if WizardSilent then
+    ShowMode := SW_HIDE
+  else
+    ShowMode := SW_SHOW;
+
+  if not Exec(UninstallExe, GetUninstallParameters, '', ShowMode, ewWaitUntilTerminated, ResultCode) then
+    Exit;
+
+  if ResultCode <> 0 then
+  begin
+    if WizardSilent then
+      ExitProcess(ResultCode);
+    Exit;
+  end;
+
+  if WizardSilent then
+  begin
+    if not WaitForPrintoCryptRemoval(InstallDir) then
+      ExitProcess(1);
+    ExitProcess(0);
+  end;
+
+  Result := True;
+end;
+
 procedure StopRunningPrintoCrypt;
 var
   ResultCode: Integer;
@@ -223,6 +394,25 @@ begin
     'Stop-Service -Name PrintoCryptBroker -Force -ErrorAction SilentlyContinue; ' +
     'Stop-Process -Name {#MyAppExeName} -Force -ErrorAction SilentlyContinue"',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+procedure RunConfiguredUninstaller;
+begin
+  StopRunningPrintoCrypt;
+
+  { Prefer Uninstall.ps1: it stops the broker service before Inno tries to delete files. }
+  if TryLaunchScriptUninstaller then
+    Exit;
+
+  if TryLaunchInnoUninstaller then
+    Exit;
+
+  if WizardSilent then
+    ExitProcess(1)
+  else
+    MsgBox(
+      'PrintoCrypt could not be uninstalled. The uninstaller was not found.',
+      mbError, MB_OK);
 end;
 
 function GetInstallPs1Params(Param: String): String;
@@ -252,6 +442,13 @@ function InitializeSetup: Boolean;
 var
   ShouldSkip: Boolean;
 begin
+  if IsUninstallCommand then
+  begin
+    RunConfiguredUninstaller;
+    Result := False;
+    Exit;
+  end;
+
   AnalyticsAction := ResolveInstallIntent(ShouldSkip);
 
   if ShouldSkip then
@@ -279,7 +476,37 @@ begin
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  InstallDir: String;
+  ResultCode: Integer;
 begin
   if CurUninstallStep = usAppMutexCheck then
     StopRunningPrintoCrypt;
+
+  if CurUninstallStep = usUninstall then
+    StopRunningPrintoCrypt;
+
+  if CurUninstallStep = usPostUninstall then
+  begin
+    InstallDir := ExpandConstant('{app}');
+    if DirExists(InstallDir) or
+       RegKeyExists(HKLM, UninstallKeyInno) or
+       RegKeyExists(HKLM, UninstallKeyLegacy) then
+    begin
+      Log('Scheduling deferred PrintoCrypt cleanup after Inno uninstall.');
+      Exec('powershell.exe',
+        '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command ' +
+        '"$ErrorActionPreference=''SilentlyContinue''; ' +
+        'Start-Sleep -Seconds 15; ' +
+        'Stop-Service -Name PrintoCryptBroker -Force -ErrorAction SilentlyContinue; ' +
+        'Get-Process -Name PrintoCrypt -ErrorAction SilentlyContinue | Stop-Process -Force; ' +
+        'sc.exe stop PrintoCryptBroker 2>$null | Out-Null; ' +
+        'sc.exe delete PrintoCryptBroker 2>$null | Out-Null; ' +
+        'Start-Sleep -Seconds 2; ' +
+        'Remove-Item -LiteralPath ''' + InstallDir + ''' -Recurse -Force -ErrorAction SilentlyContinue; ' +
+        'Remove-Item -Path ''HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{{8F4E2A61-9C3D-4B15-9E7A-1D2F8C6B4A90}}_is1'' -Recurse -Force -ErrorAction SilentlyContinue; ' +
+        'Remove-Item -Path ''HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\PrintoCrypt'' -Recurse -Force -ErrorAction SilentlyContinue"',
+        '', SW_HIDE, ewNoWait, ResultCode);
+    end;
+  end;
 end;
