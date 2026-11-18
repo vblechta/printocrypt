@@ -52,6 +52,7 @@ Write-Host "Preparing setup package at '$OutputDir'..." -ForegroundColor Cyan
 
 Copy-Item -Path (Join-Path $PSScriptRoot "Install.ps1") -Destination (Join-Path $OutputDir "Install.ps1") -Force
 Copy-Item -Path (Join-Path $PSScriptRoot "Uninstall.ps1") -Destination (Join-Path $OutputDir "Uninstall.ps1") -Force
+Copy-Item -Path (Join-Path $PSScriptRoot "Stop-PrintoCrypt.ps1") -Destination (Join-Path $OutputDir "Stop-PrintoCrypt.ps1") -Force
 Copy-Item -Path (Join-Path $PSScriptRoot "PrintoCrypt-Spooler.ps1") -Destination (Join-Path $OutputDir "PrintoCrypt-Spooler.ps1") -Force
 Copy-Item -Path (Join-Path $PSScriptRoot "PrintoCrypt-Analytics.ps1") -Destination (Join-Path $OutputDir "PrintoCrypt-Analytics.ps1") -Force
 Copy-Item -Path (Join-Path $PSScriptRoot "PrintoCrypt-UserLaunch.ps1") -Destination (Join-Path $OutputDir "PrintoCrypt-UserLaunch.ps1") -Force

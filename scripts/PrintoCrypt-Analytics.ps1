@@ -234,10 +234,53 @@ function Invoke-InInteractiveUserSession {
     }
 }
 
+function New-PrintoCryptAnalyticsTaskScriptContent {
+    param([string]$PayloadBase64)
+
+    $analyticsUrl = "https://analytics.printocrypt.ethercloud.io/api/install"
+    $apiKey = "B9ZwseWGrQNmcHOuYZjuiVftVAk01w"
+
+    return @"
+#Requires -Version 5.1
+`$ErrorActionPreference = 'SilentlyContinue'
+`$bodyJson = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$PayloadBase64'))
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+[System.Net.WebRequest]::DefaultWebProxy = `$null
+try {
+    Invoke-RestMethod `
+        -Uri '$analyticsUrl' `
+        -Method Post `
+        -Headers @{
+            'Content-Type' = 'application/json'
+            'X-API-Key'    = '$apiKey'
+        } `
+        -Body `$bodyJson `
+        -TimeoutSec 10 | Out-Null
+    exit 0
+}
+catch {
+}
+if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+    `$bodyFile = [System.IO.Path]::GetTempFileName()
+    try {
+        Set-Content -Path `$bodyFile -Value `$bodyJson -Encoding UTF8 -NoNewline
+        & curl.exe -s -S -f `
+            -X POST `
+            -H 'Content-Type: application/json' `
+            -H 'X-API-Key: $apiKey' `
+            --data-binary "@`$bodyFile" `
+            '$analyticsUrl' | Out-Null
+    }
+    finally {
+        Remove-Item -Path `$bodyFile -Force -ErrorAction SilentlyContinue
+    }
+}
+"@
+}
+
 function Send-PrintoCryptAnalyticsViaInteractiveUser {
     param(
-        [string]$BodyJson,
-        [string]$AnalyticsScriptPath
+        [string]$BodyJson
     )
 
     $user = Get-InteractiveUserForAnalytics
@@ -245,27 +288,21 @@ function Send-PrintoCryptAnalyticsViaInteractiveUser {
         return $false
     }
 
-    if (-not (Test-Path $AnalyticsScriptPath)) {
-        return $false
-    }
-
     $payloadBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($BodyJson))
-    $taskScript = Join-Path $env:TEMP "PrintoCrypt-Analytics-$([guid]::NewGuid().ToString('N')).ps1"
-    $escapedAnalyticsScriptPath = $AnalyticsScriptPath.Replace("'", "''")
-
-    @"
-#Requires -Version 5.1
-`$bodyJson = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$payloadBase64'))
-. '$escapedAnalyticsScriptPath'
-Invoke-PrintoCryptAnalyticsRequest -BodyJson `$bodyJson | Out-Null
-"@ | Set-Content -Path $taskScript -Encoding UTF8
+    $analyticsDir = Join-Path $env:ProgramData "PrintoCrypt"
+    New-Item -ItemType Directory -Path $analyticsDir -Force | Out-Null
+    $taskScript = Join-Path $analyticsDir "PrintoCrypt-Analytics-$([guid]::NewGuid().ToString('N')).ps1"
+    New-PrintoCryptAnalyticsTaskScriptContent -PayloadBase64 $payloadBase64 |
+        Set-Content -Path $taskScript -Encoding UTF8
 
     try {
-        return Invoke-InInteractiveUserSession `
+        $started = Invoke-InInteractiveUserSession `
             -UserName $user `
             -Execute "powershell.exe" `
             -Arguments "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$taskScript`"" `
             -WaitSeconds 8
+
+        return $started
     }
     finally {
         Remove-Item -Path $taskScript -Force -ErrorAction SilentlyContinue
@@ -282,16 +319,21 @@ function Send-PrintoCryptAnalytics {
         [string]$ExePath
     )
 
-    $analyticsScriptPath = $PrintoCryptAnalyticsScriptPath
-    if ([string]::IsNullOrWhiteSpace($analyticsScriptPath) -or -not (Test-Path $analyticsScriptPath)) {
-        $analyticsScriptPath = Join-Path $PSScriptRoot "PrintoCrypt-Analytics.ps1"
-    }
-
     try {
         $bodyJson = New-PrintoCryptAnalyticsPayload -Action $Action -Version $Version -ExePath $ExePath
+        $lifecycleActions = @("install", "update", "uninstall")
+
+        if ($Action -in $lifecycleActions) {
+            if (Invoke-PrintoCryptAnalyticsRequest -BodyJson $bodyJson) {
+                return
+            }
+
+            Send-PrintoCryptAnalyticsViaInteractiveUser -BodyJson $bodyJson | Out-Null
+            return
+        }
 
         if (Test-ShouldDeferAnalyticsToInteractiveUser) {
-            if (Send-PrintoCryptAnalyticsViaInteractiveUser -BodyJson $bodyJson -AnalyticsScriptPath $analyticsScriptPath) {
+            if (Send-PrintoCryptAnalyticsViaInteractiveUser -BodyJson $bodyJson) {
                 return
             }
         }

@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.2"
+  #define MyAppVersion "1.0.3"
 #endif
 
 #define MyAppName "PrintoCrypt"
@@ -43,7 +43,9 @@ Name: "czech"; MessagesFile: "compiler:Languages\Czech.isl"
 Source: "..\artifacts\PrintoCrypt-Setup\app\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\artifacts\PrintoCrypt-Setup\Install.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\artifacts\PrintoCrypt-Setup\Uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\artifacts\PrintoCrypt-Setup\Stop-PrintoCrypt.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\artifacts\PrintoCrypt-Setup\Uninstall.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "..\artifacts\PrintoCrypt-Setup\Stop-PrintoCrypt.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "..\artifacts\PrintoCrypt-Setup\PrintoCrypt-Spooler.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\artifacts\PrintoCrypt-Setup\PrintoCrypt-Spooler.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "..\artifacts\PrintoCrypt-Setup\PrintoCrypt-Analytics.ps1"; DestDir: "{app}"; Flags: ignoreversion
@@ -387,13 +389,56 @@ end;
 procedure StopRunningPrintoCrypt;
 var
   ResultCode: Integer;
+  StopScript: String;
+  InstallDir: String;
 begin
-  { Avoid sc.exe "file not found" noise when the service/task never existed. }
+  Log('Stopping PrintoCrypt before install/update.');
+  StopScript := '';
+
+  try
+    ExtractTemporaryFile('Stop-PrintoCrypt.ps1');
+    StopScript := ExpandConstant('{tmp}\Stop-PrintoCrypt.ps1');
+    Log('Using bundled stop script: ' + StopScript);
+  except
+    Log('Could not extract bundled stop script.');
+  end;
+
+  if (StopScript = '') or (not FileExists(StopScript)) then
+  begin
+    if GetInstallDirectory(InstallDir) then
+      StopScript := AddBackslash(InstallDir) + 'Stop-PrintoCrypt.ps1';
+  end;
+
+  if (StopScript <> '') and FileExists(StopScript) then
+  begin
+    if Exec('powershell.exe',
+      '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + StopScript + '"',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    begin
+      Log('Stop-PrintoCrypt.ps1 exit code: ' + IntToStr(ResultCode));
+      Exit;
+    end;
+  end;
+
+  Log('Falling back to inline PrintoCrypt stop.');
   Exec('powershell.exe',
-    '-NoProfile -ExecutionPolicy Bypass -Command "' +
+    '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "' +
+    '$ErrorActionPreference=''SilentlyContinue''; ' +
     'Stop-Service -Name PrintoCryptBroker -Force -ErrorAction SilentlyContinue; ' +
-    'Stop-Process -Name {#MyAppExeName} -Force -ErrorAction SilentlyContinue"',
+    'Get-Process -Name PrintoCrypt -ErrorAction SilentlyContinue | Stop-Process -Force; ' +
+    'sc.exe stop PrintoCryptBroker 2>$null | Out-Null; ' +
+    'sc.exe delete PrintoCryptBroker 2>$null | Out-Null; ' +
+    'for ($i = 0; $i -lt 30; $i++) { sc.exe query PrintoCryptBroker *> $null; ' +
+    'if ($LASTEXITCODE -ne 0) { break }; Start-Sleep -Seconds 1 }; ' +
+    'Get-Process -Name PrintoCrypt -ErrorAction SilentlyContinue | Stop-Process -Force"',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Log('Inline stop exit code: ' + IntToStr(ResultCode));
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  StopRunningPrintoCrypt;
+  Result := '';
 end;
 
 procedure RunConfiguredUninstaller;

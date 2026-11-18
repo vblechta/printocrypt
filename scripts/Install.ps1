@@ -469,7 +469,16 @@ function Resolve-SourceAppDir {
 }
 
 function Stop-PrintoCryptProcess {
-    Stop-Service -Name $script:PrintoCryptBrokerServiceName -Force -ErrorAction SilentlyContinue
+    Write-InstallLog "Stopping PrintoCrypt processes and broker service for install/update."
+
+    $stopScript = Join-Path $PSScriptRoot "Stop-PrintoCrypt.ps1"
+    if (Test-Path $stopScript) {
+        & $stopScript | Out-Null
+        return
+    }
+
+    Stop-PrintoCryptBrokerService
+    Wait-PrintoCryptBrokerServiceRemoved | Out-Null
 
     Get-Process -Name "PrintoCrypt" -ErrorAction SilentlyContinue | ForEach-Object {
         Write-Step "Stopping PrintoCrypt..."
@@ -1393,7 +1402,7 @@ function Register-PrintoCryptActiveSetup {
 
     $version = Get-PrintoCryptVersionFromExe -ExePath $ExePath
     if ([string]::IsNullOrWhiteSpace($version) -or $version -eq "unknown") {
-        $version = "1.0.2"
+        $version = "1.0.3"
     }
 
     $stubPath = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$userLaunchScript`""

@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.0.3] - 2026-06-24
+
+### Fixed
+
+- Silent install and upgrade (`/VERYSILENT`) when PrintoCrypt or the broker service is already running — installer stops and removes the broker before replacing files.
+- Silent uninstall via `PrintoCrypt-Setup.exe /uninstall` — full removal of app files, broker service, and Add/Remove Programs entry.
+- Install analytics not sent during silent install, update, or uninstall under the SYSTEM account.
+
+### Changed
+
+- `PrintoCrypt-Setup.exe /uninstall` runs the bundled uninstall script with synchronous cleanup; documented in README.
+
 ## [1.0.2] - 2026-06-23
 
 ### Added
