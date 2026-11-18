@@ -2,7 +2,7 @@
 
 Virtual Windows printer that saves every print job as a **password-protected PDF**. When you print, PrintoCrypt prompts for a password before writing the file.
 
-**Current version:** 1.0.3 — see [CHANGELOG.md](CHANGELOG.md) for release notes.
+**Current version:** 1.1.0 — see [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## How it works
 
@@ -12,7 +12,7 @@ flowchart LR
     Printer -->|XPS over TCP| Broker[PrintoCryptBroker service]
     Broker -->|Named pipe| Tray[PrintoCrypt tray app]
     Tray -->|Password dialog| User[You]
-    User -->|Password| Encrypt[AES-128 PDF encryption]
+    User -->|Password| Encrypt[AES-256 PDF encryption]
     Encrypt --> PDF[Encrypted PDF in Documents/PrintoCrypt]
 ```
 
@@ -20,7 +20,7 @@ flowchart LR
 2. The **PrintoCryptBroker** Windows service receives the job and routes it to the user who printed.
 3. If needed, PrintoCrypt launches the **tray app** in that user's session.
 4. A **password dialog** appears (print is paused until you confirm or cancel).
-5. The job is converted to PDF with **built-in Windows XPS rendering**, then encrypted with **PDFsharp** (128-bit AES, all permissions restricted).
+5. The job is converted to PDF with **built-in Windows XPS rendering**, then encrypted with **PDFsharp** (256-bit AES, all permissions restricted).
 6. The encrypted PDF is saved to your output folder.
 7. **Outlook** opens a new email draft with the PDF attached (if installed).
 

@@ -25,6 +25,9 @@ public sealed class PdfEncryptionService
         security.PermitFormsFill = false;
         security.PermitAssembleDocument = false;
 
+        // PDF 2.0 security handler revision 6: AES with a 256-bit key.
+        document.SecurityHandler.SetEncryptionToV5();
+
         var directory = Path.GetDirectoryName(destinationPdfPath);
         if (!string.IsNullOrEmpty(directory))
         {

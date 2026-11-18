@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.1.0] - 2026-11-18
+
+### Changed
+
+- PDFs are encrypted with AES-256 (PDF 2.0) instead of AES-128.
+
 ## [1.0.3] - 2026-06-24
 
 ### Fixed

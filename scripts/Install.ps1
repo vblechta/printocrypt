@@ -1402,7 +1402,7 @@ function Register-PrintoCryptActiveSetup {
 
     $version = Get-PrintoCryptVersionFromExe -ExePath $ExePath
     if ([string]::IsNullOrWhiteSpace($version) -or $version -eq "unknown") {
-        $version = "1.0.3"
+        $version = "1.1.0"
     }
 
     $stubPath = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$userLaunchScript`""
