@@ -41,6 +41,11 @@ if (Get-Printer -Name $testPrinter -ErrorAction SilentlyContinue) {
     Remove-Printer -Name $testPrinter
 }
 
+$previousDefault = Get-CimInstance -ClassName Win32_Printer -ErrorAction SilentlyContinue |
+    Where-Object { $_.Default } |
+    Select-Object -First 1
+$previousDefaultName = if ($previousDefault) { [string]$previousDefault.Name } else { $null }
+
 try {
     Add-Printer -Name $testPrinter -DriverName $driverName -PortName $portName
 }
@@ -50,6 +55,15 @@ catch {
 finally {
     if (Get-Printer -Name $testPrinter -ErrorAction SilentlyContinue) {
         Remove-Printer -Name $testPrinter
+    }
+
+    if ($previousDefaultName -and $previousDefaultName -ne $testPrinter) {
+        $restore = Get-CimInstance -ClassName Win32_Printer -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq $previousDefaultName } |
+            Select-Object -First 1
+        if ($restore) {
+            Invoke-CimMethod -InputObject $restore -MethodName SetDefaultPrinter | Out-Null
+        }
     }
 }
 

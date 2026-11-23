@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.1.1] - 2026-11-23
+
+### Fixed
+
+- Install and update no longer replace the existing default printer with the PrintoCrypt printer.
+
 ## [1.1.0] - 2026-11-18
 
 ### Changed

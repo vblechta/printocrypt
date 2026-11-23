@@ -2,7 +2,7 @@
 
 Virtual Windows printer that saves every print job as a **password-protected PDF**. When you print, PrintoCrypt prompts for a password before writing the file.
 
-**Current version:** 1.1.0 — see [CHANGELOG.md](CHANGELOG.md) for release notes.
+**Current version:** 1.1.1 — see [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## How it works
 
@@ -128,7 +128,7 @@ powershell -ExecutionPolicy Bypass -File Install.ps1 -Quiet
 The installer:
 
 - Installs PrintoCrypt to `%ProgramFiles%\PrintoCrypt`
-- Registers the **PrintoCrypt** printer for **all users** on the PC
+- Registers the **PrintoCrypt** printer for **all users** on the PC, without changing the existing default printer
 - Installs and starts the **PrintoCryptBroker** Windows service (print capture)
 - Registers per-user startup via **Active Setup** so the tray app runs for each user (local and domain)
 - Creates Start Menu shortcuts

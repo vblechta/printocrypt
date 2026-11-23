@@ -619,48 +619,230 @@ function Grant-PrintoCryptPrinterAccess {
     }
 }
 
-function Install-PrintoCryptPrinter {
-    Write-Step "Installing printer '$PrinterName' for all users..."
-
-    $portName = "PrintoCrypt_$Port"
-    $incomingPath = Join-Path $env:ProgramData "PrintoCrypt\incoming"
-    $legacyFolderPort = if ($incomingPath.EndsWith('\')) { $incomingPath } else { "$incomingPath\" }
-
-    Remove-LegacyPrinterPort -LegacyPortName $legacyFolderPort
-    Remove-LegacyPrinterPort -LegacyPortName '\\.\pipe\PrintoCrypt'
-
-    if (-not (Get-PrinterPort -Name $portName -ErrorAction SilentlyContinue)) {
-        Add-PrinterPort -Name $portName -PrinterHostAddress $HostAddress -PortNumber $Port
+function Initialize-DefaultPrinterNative {
+    if ("PrintoCryptDefaultPrinter" -as [type]) {
+        return
     }
 
-    if (-not (Get-PrinterPort -Name $portName -ErrorAction SilentlyContinue)) {
-        throw "Could not create printer port '$portName' on ${HostAddress}:${Port}."
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class PrintoCryptDefaultPrinter
+{
+    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool GetDefaultPrinter(StringBuilder pszBuffer, ref int pcchBuffer);
+
+    [DllImport("winspool.drv", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool SetDefaultPrinter(string pszPrinter);
+
+    public static string Read()
+    {
+        int capacity = 512;
+        var buffer = new StringBuilder(capacity);
+        int needed = capacity;
+        if (!GetDefaultPrinter(buffer, ref needed))
+        {
+            if (needed <= capacity)
+            {
+                return null;
+            }
+
+            buffer = new StringBuilder(needed);
+            if (!GetDefaultPrinter(buffer, ref needed))
+            {
+                return null;
+            }
+        }
+
+        var name = buffer.ToString().Trim();
+        return name.Length == 0 ? null : name;
     }
 
-    Write-Ok "Created TCP/IP port ${HostAddress}:${Port}"
+    public static int Apply(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return 87;
+        }
 
-    $driverName = Get-PrintDriverName
-    Write-Ok "Using driver: $driverName"
+        if (SetDefaultPrinter(name))
+        {
+            return 0;
+        }
 
-    if (Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue) {
-        Remove-Printer -Name $PrinterName
+        return Marshal.GetLastWin32Error();
+    }
+}
+"@
+}
+
+function Get-DefaultPrinterName {
+    try {
+        Initialize-DefaultPrinterNative
+        $name = [PrintoCryptDefaultPrinter]::Read()
+        if (-not [string]::IsNullOrWhiteSpace($name)) {
+            return $name
+        }
+    }
+    catch {
+        Write-InstallLog "GetDefaultPrinter failed: $($_.Exception.Message)"
     }
 
     try {
-        Add-Printer -Name $PrinterName -DriverName $driverName -PortName $portName -ErrorAction Stop
+        $device = (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Windows" -Name Device -ErrorAction Stop).Device
+        if ($device -match '^(.*),winspool,') {
+            $name = $Matches[1].Trim()
+            if (-not [string]::IsNullOrWhiteSpace($name)) {
+                return $name
+            }
+        }
     }
     catch {
-        Write-InstallLog "Add-Printer failed: $($_.Exception.Message)"
-        Install-PrintoCryptPrinterViaPrintUi -PrinterName $PrinterName -PortName $portName -DriverName $driverName
     }
 
-    if (-not (Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue)) {
-        throw "Printer '$PrinterName' was not created."
+    return $null
+}
+
+function Set-DefaultPrinterName {
+    param([string]$Name)
+
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        return $false
     }
 
-    Grant-PrintoCryptPrinterAccess -PrinterName $PrinterName
+    try {
+        Initialize-DefaultPrinterNative
+        $result = [PrintoCryptDefaultPrinter]::Apply($Name)
+        if ($result -eq 0) {
+            return $true
+        }
 
-    Write-Ok "Printer '$PrinterName' is available to all users on this PC."
+        Write-InstallLog "SetDefaultPrinter('$Name') failed with Win32 error $result."
+    }
+    catch {
+        Write-InstallLog "SetDefaultPrinter('$Name') failed: $($_.Exception.Message)"
+    }
+
+    try {
+        $printer = Get-CimInstance -ClassName Win32_Printer -ErrorAction Stop |
+            Where-Object { $_.Name -eq $Name } |
+            Select-Object -First 1
+        if (-not $printer) {
+            return $false
+        }
+
+        $cimResult = Invoke-CimMethod -InputObject $printer -MethodName SetDefaultPrinter -ErrorAction Stop
+        return ($cimResult.ReturnValue -eq 0)
+    }
+    catch {
+        Write-InstallLog "Could not restore default printer '$Name': $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Restore-PreviousDefaultPrinter {
+    param([string]$PreviousDefault)
+
+    try {
+        if ([string]::IsNullOrWhiteSpace($PreviousDefault)) {
+            Write-InstallLog "No previous default printer was set."
+            return
+        }
+
+        $stillInstalled = @(Get-CimInstance -ClassName Win32_Printer -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq $PreviousDefault })
+        if ($stillInstalled.Count -eq 0) {
+            Write-InstallLog "Previous default printer '$PreviousDefault' is no longer installed."
+            return
+        }
+
+        $hadToRestore = $false
+        for ($attempt = 1; $attempt -le 4; $attempt++) {
+            $current = Get-DefaultPrinterName
+            if ($current -ne $PreviousDefault) {
+                $hadToRestore = $true
+                Write-InstallLog "Default printer is '$current'. Restoring '$PreviousDefault' (attempt $attempt)."
+                Set-DefaultPrinterName -Name $PreviousDefault | Out-Null
+            }
+            elseif ($attempt -ge 2) {
+                break
+            }
+
+            Start-Sleep -Milliseconds 500
+        }
+
+        $current = Get-DefaultPrinterName
+        if ($current -eq $PreviousDefault) {
+            Write-InstallLog "Default printer remains '$PreviousDefault'."
+            if ($hadToRestore) {
+                Write-Ok "Kept '$PreviousDefault' as the default printer."
+            }
+
+            return
+        }
+
+        Write-InstallLog "Could not keep '$PreviousDefault' as the default printer. Current default is '$current'."
+    }
+    catch {
+        Write-InstallLog "Could not preserve the default printer: $($_.Exception.Message)"
+    }
+}
+
+function Install-PrintoCryptPrinter {
+    # Windows selects a newly added printer as the default. Remember the user's printer first.
+    $script:PreviousDefaultPrinter = Get-DefaultPrinterName
+    if ($script:PreviousDefaultPrinter) {
+        Write-InstallLog "Default printer before printer setup is '$($script:PreviousDefaultPrinter)'."
+    }
+
+    try {
+        Write-Step "Installing printer '$PrinterName' for all users..."
+
+        $portName = "PrintoCrypt_$Port"
+        $incomingPath = Join-Path $env:ProgramData "PrintoCrypt\incoming"
+        $legacyFolderPort = if ($incomingPath.EndsWith('\')) { $incomingPath } else { "$incomingPath\" }
+
+        Remove-LegacyPrinterPort -LegacyPortName $legacyFolderPort
+        Remove-LegacyPrinterPort -LegacyPortName '\\.\pipe\PrintoCrypt'
+
+        if (-not (Get-PrinterPort -Name $portName -ErrorAction SilentlyContinue)) {
+            Add-PrinterPort -Name $portName -PrinterHostAddress $HostAddress -PortNumber $Port
+        }
+
+        if (-not (Get-PrinterPort -Name $portName -ErrorAction SilentlyContinue)) {
+            throw "Could not create printer port '$portName' on ${HostAddress}:${Port}."
+        }
+
+        Write-Ok "Created TCP/IP port ${HostAddress}:${Port}"
+
+        $driverName = Get-PrintDriverName
+        Write-Ok "Using driver: $driverName"
+
+        if (Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue) {
+            Remove-Printer -Name $PrinterName
+        }
+
+        try {
+            Add-Printer -Name $PrinterName -DriverName $driverName -PortName $portName -ErrorAction Stop
+        }
+        catch {
+            Write-InstallLog "Add-Printer failed: $($_.Exception.Message)"
+            Install-PrintoCryptPrinterViaPrintUi -PrinterName $PrinterName -PortName $portName -DriverName $driverName
+        }
+
+        if (-not (Get-Printer -Name $PrinterName -ErrorAction SilentlyContinue)) {
+            throw "Printer '$PrinterName' was not created."
+        }
+
+        Grant-PrintoCryptPrinterAccess -PrinterName $PrinterName
+
+        Write-Ok "Printer '$PrinterName' is available to all users on this PC."
+    }
+    finally {
+        Restore-PreviousDefaultPrinter -PreviousDefault $script:PreviousDefaultPrinter
+    }
 }
 
 function Install-PrintoCryptApp {
@@ -1402,7 +1584,7 @@ function Register-PrintoCryptActiveSetup {
 
     $version = Get-PrintoCryptVersionFromExe -ExePath $ExePath
     if ([string]::IsNullOrWhiteSpace($version) -or $version -eq "unknown") {
-        $version = "1.1.0"
+        $version = "1.1.1"
     }
 
     $stubPath = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$userLaunchScript`""
@@ -1632,6 +1814,9 @@ try {
         $message = "Printer '$PrinterName' installed successfully."
         Write-Ok $message
     }
+
+    # The spooler can select the new printer again after Add-Printer returns.
+    Restore-PreviousDefaultPrinter -PreviousDefault $script:PreviousDefaultPrinter
 
     if (-not $PrinterOnly -and $AnalyticsAction -in @("install", "update")) {
         if (Get-Command Send-PrintoCryptAnalytics -ErrorAction SilentlyContinue) {
